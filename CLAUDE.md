@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-**项目**: Life Manager - Obsidian 生活管理插件
+**项目**: Amazing Life - 生活管理插件
 
 ---
 
