@@ -507,12 +507,14 @@ export class DashboardView extends ItemView {
       
       .al-body {
         display: flex;
+        flex-wrap: wrap;
         flex: 1;
         overflow: hidden;
       }
       
       .al-main {
         flex: 1;
+        min-width: 300px;
         display: flex;
         flex-direction: column;
         padding: 16px;
@@ -521,19 +523,21 @@ export class DashboardView extends ItemView {
       }
       
       .al-sidebar {
-        width: 320px;
+        flex: 0 0 auto;
+        min-width: 280px;
+        max-width: 360px;
+        width: 40%;
         padding: 16px;
         border-left: 1px solid var(--border-color);
         display: flex;
         flex-direction: column;
         gap: 16px;
         overflow-y: auto;
-        flex-shrink: 0;
       }
       
       .al-stats {
         display: grid;
-        grid-template-columns: repeat(4, 1fr);
+        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
         gap: 12px;
       }
       

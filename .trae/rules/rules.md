@@ -4,7 +4,7 @@
 
 ---
 ## 插件安装
-代码修改完成后请直接把最新的插件代码安装到"E:\obsidian-test\.obsidian\plugins\amazing-life"
+代码修改完成后请直接把最新的插件代码安装到"E:\Awesome Intelligence\Amazing Life\reference\obsidian-test\.obsidian\plugins\amazing-life"
 
 
 ## 文档参考
