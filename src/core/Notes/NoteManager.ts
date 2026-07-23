@@ -68,15 +68,22 @@ export class NoteManager {
    */
   async getOrCreateTodayNote(): Promise<string> {
     const today = this.getToday();
-    const content = await this.getDailyNoteContent(today);
+    return this.getOrCreateDailyNote(today);
+  }
+  
+  /**
+   * 获取或创建指定日期的日记
+   */
+  async getOrCreateDailyNote(date: Date | string): Promise<string> {
+    const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0];
+    const content = await this.getDailyNoteContent(dateStr);
     
     if (content !== null) {
       return content;
     }
     
-    // 创建新的日记
-    const newContent = this.generateDailyNoteTemplate(today);
-    await this.storage.createFile(this.storage.getDailyNotePath(today), newContent);
+    const newContent = this.generateDailyNoteTemplate(dateStr);
+    await this.storage.createFile(this.storage.getDailyNotePath(dateStr), newContent);
     return newContent;
   }
   

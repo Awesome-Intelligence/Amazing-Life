@@ -9,12 +9,16 @@ import AmazingLife from '../main';
 export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
 
 export type ViewType = 'dashboard' | 'list' | 'board' | 'gallery' | 'goal-detail' | 'task-detail';
+export type CalendarViewMode = 'day' | 'week' | 'month' | 'year';
 
 export class DashboardView extends ItemView {
   private plugin: AmazingLife;
   private currentView: ViewType = 'dashboard';
   private selectedGoalId: string | null = null;
   private selectedTaskId: string | null = null;
+  private calendarMode: CalendarViewMode = 'month';
+  private calendarDate: Date = new Date();
+  private selectedWeekStart: string | null = null;
   
   constructor(leaf: any, plugin: AmazingLife) {
     super(leaf);
@@ -290,6 +294,7 @@ export class DashboardView extends ItemView {
   }
   
   private renderDashboardView(allGoals: Goal[], todayTasks: Task[], overdueTasks: Task[], weekComplete: number, activeTasks: number): string {
+    const calendarHtml = this.renderCalendar();
     return `
       <div class="al-main">
         <div class="al-stats">
@@ -309,13 +314,9 @@ export class DashboardView extends ItemView {
       </div>
       <div class="al-sidebar">
         ${overdueTasks.length > 0 ? `<div class="al-panel al-panel-overdue"><div class="al-panel-header"><span>⚠️</span><span>逾期任务</span><span class="al-panel-count al-count-overdue">${overdueTasks.length}</span></div><div class="al-panel-body">${this.renderTasks(overdueTasks)}</div></div>` : ''}
-        <div class="al-panel">
-          <div class="al-panel-header"><span>⚡</span><span>快捷操作</span></div>
-          <div class="al-panel-body">
-            <button class="al-quick-btn" id="al-open-today"><span>📝</span><span>今日日记</span></button>
-            <button class="al-quick-btn" id="al-open-weekly"><span>📅</span><span>本周周记</span></button>
-            <button class="al-quick-btn" id="al-open-monthly"><span>📆</span><span>本月月记</span></button>
-          </div>
+        <div class="al-panel al-panel-calendar">
+          <div class="al-panel-header"><span>📅</span><span>日历</span></div>
+          <div class="al-panel-body al-calendar-body">${calendarHtml}</div>
         </div>
       </div>
     `;
@@ -418,6 +419,135 @@ export class DashboardView extends ItemView {
     return goals.slice(0, 5).map(goal => `<div class="al-goal" data-goal-id="${goal['A-id']}"><div class="al-goal-top">${this.renderGoalFields(goal, fields, allTasks)}</div></div>`).join('');
   }
   
+  private renderCalendar(): string {
+    const modes: CalendarViewMode[] = ['day', 'week', 'month', 'year'];
+    const modeLabels: Record<CalendarViewMode, string> = { day: '日', week: '周', month: '月', year: '年' };
+    
+    let content = '';
+    
+    switch (this.calendarMode) {
+      case 'day':
+        content = this.renderDayView(this.calendarDate);
+        break;
+      case 'week':
+        content = this.renderWeekView(this.calendarDate);
+        break;
+      case 'month':
+        content = this.renderMonthView(this.calendarDate);
+        break;
+      case 'year':
+        content = this.renderYearView(this.calendarDate);
+        break;
+    }
+    
+    return `
+      <div class="al-calendar-modes">
+        ${modes.map(m => `<button class="al-calendar-mode-btn ${this.calendarMode === m ? 'active' : ''}" data-mode="${m}">${modeLabels[m]}</button>`).join('')}
+      </div>
+      <div class="al-calendar-content">${content}</div>
+    `;
+  }
+  
+  private renderDayView(date: Date): string {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDay = firstDay.getDay();
+    const daysInMonth = lastDay.getDate();
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    let cells = '';
+    const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+    weekDays.forEach(d => cells += `<div class="al-cal-day-header">${d}</div>`);
+    
+    for (let i = 0; i < startDay; i++) {
+      cells += `<div class="al-cal-day empty"></div>`;
+    }
+    
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const isToday = todayStr === dateStr;
+      cells += `<div class="al-cal-day ${isToday ? 'today' : ''}" data-date="${dateStr}">${d}</div>`;
+    }
+    
+    return `
+      <div class="al-calendar-nav"><button class="al-calendar-prev" id="al-cal-prev-day">◀</button><span class="al-calendar-title">${year}年${month + 1}月</span><button class="al-calendar-next" id="al-cal-next-day">▶</button></div>
+      <div class="al-cal-grid">${cells}</div>
+    `;
+  }
+  
+  private renderWeekView(date: Date): string {
+    const year = date.getFullYear();
+    const month = date.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const startDay = firstDay.getDay();
+    const daysInMonth = lastDay.getDate();
+    const today = new Date();
+    const todayStr = today.toISOString().split('T')[0];
+    
+    let cells = '';
+    const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
+    weekDays.forEach(d => cells += `<div class="al-cal-day-header">${d}</div>`);
+    
+    for (let i = 0; i < startDay; i++) {
+      cells += `<div class="al-cal-day empty"></div>`;
+    }
+    
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dayDate = new Date(year, month, d);
+      const weekStart = new Date(dayDate);
+      weekStart.setDate(dayDate.getDate() - dayDate.getDay());
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      const weekStartStr = weekStart.toISOString().split('T')[0];
+      const isToday = todayStr === dateStr;
+      const isSelected = this.selectedWeekStart === weekStartStr;
+      const classes = ['al-cal-day'];
+      if (isToday) classes.push('today');
+      if (isSelected) classes.push('week-selected');
+      cells += `<div class="${classes.join(' ')}" data-week-start="${weekStartStr}" data-date="${dateStr}">${d}</div>`;
+    }
+    
+    return `
+      <div class="al-calendar-nav"><button class="al-calendar-prev" id="al-cal-prev-week">◀</button><span class="al-calendar-title">${year}年${month + 1}月</span><button class="al-calendar-next" id="al-cal-next-week">▶</button></div>
+      <div class="al-cal-grid">${cells}</div>
+    `;
+  }
+  
+  private renderMonthView(date: Date): string {
+    const year = date.getFullYear();
+    const today = new Date();
+    let months = '';
+    const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
+    
+    for (let m = 0; m < 12; m++) {
+      const isCurrentMonth = today.getFullYear() === year && today.getMonth() === m;
+      months += `<div class="al-cal-month-item ${isCurrentMonth ? 'current' : ''}" data-year="${year}" data-month="${m + 1}">${monthNames[m]}</div>`;
+    }
+    
+    return `
+      <div class="al-calendar-nav"><button class="al-calendar-prev" id="al-cal-prev-month">◀</button><span class="al-calendar-title">${year}年</span><button class="al-calendar-next" id="al-cal-next-month">▶</button></div>
+      <div class="al-cal-month-grid">${months}</div>
+    `;
+  }
+  
+  private renderYearView(date: Date): string {
+    const year = date.getFullYear();
+    const prevYear = year - 1;
+    const nextYear = year + 1;
+    
+    return `
+      <div class="al-calendar-nav"><button class="al-calendar-prev" id="al-cal-prev-year">◀</button><span class="al-calendar-title">选择年份</span><button class="al-calendar-next" id="al-cal-next-year">▶</button></div>
+      <div class="al-cal-year-display">
+        <div class="al-cal-year-item" data-year="${prevYear}">${prevYear}</div>
+        <div class="al-cal-year-item current" data-year="${year}">${year}</div>
+        <div class="al-cal-year-item" data-year="${nextYear}">${nextYear}</div>
+      </div>
+    `;
+  }
+  
   private renderTaskFields(task: Task, fields: TaskField[]): string {
     const priorityColors: Record<number, string> = { 1: '--text-red', 2: '--text-orange', 3: '--text-yellow', 4: '--text-green', 5: '--text-muted' };
     const statusNames: Record<string, string> = { 'pending': '待办', 'in-progress': '进行中', 'completed': '已完成', 'cancelled': '已取消' };
@@ -464,10 +594,10 @@ export class DashboardView extends ItemView {
     content.querySelector('#al-refresh-btn')?.addEventListener('click', () => { new Notice('正在刷新...'); this.loadAndRender(); });
     content.querySelector('#al-create-goal-btn')?.addEventListener('click', () => this.showCreateGoalModal());
     content.querySelector('#al-create-task-btn')?.addEventListener('click', () => this.showCreateTaskModal());
-    content.querySelector('#al-open-today')?.addEventListener('click', () => this.openTodayNote());
-    content.querySelector('#al-open-weekly')?.addEventListener('click', () => this.openWeeklyNote());
-    content.querySelector('#al-open-monthly')?.addEventListener('click', () => this.openMonthlyNote());
     content.querySelector('#al-add-task-to-goal')?.addEventListener('click', () => { if (this.selectedGoalId) this.showCreateTaskModalForGoal(this.selectedGoalId); });
+    
+    // Calendar events
+    this.bindCalendarEvents(content);
     
     // Task actions
     content.querySelector('#al-complete-task')?.addEventListener('click', async () => { if (this.selectedTaskId) { await this.plugin.getTaskManager().completeTask(this.selectedTaskId); this.loadAndRender(); } });
@@ -485,6 +615,99 @@ export class DashboardView extends ItemView {
     const task = this.plugin.getTaskManager().getTask(taskId);
     if (!task) return;
     try { if (task['A-status'] === 'completed') { await this.plugin.getTaskManager().updateTask(taskId, { status: 'pending' }); } else { await this.plugin.getTaskManager().completeTask(taskId); } this.loadAndRender(); } catch (error) { new Notice('更新失败: ' + (error as Error).message); }
+  }
+  
+  private bindCalendarEvents(content: HTMLElement): void {
+    // 模式切换
+    content.querySelectorAll('.al-calendar-mode-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const mode = btn.getAttribute('data-mode') as CalendarViewMode;
+        this.calendarMode = mode;
+        this.render();
+      });
+    });
+    
+    // 上一个
+    content.querySelector('#al-cal-prev-day')?.addEventListener('click', () => { this.calendarDate.setMonth(this.calendarDate.getMonth() - 1); this.selectedWeekStart = null; this.render(); });
+    content.querySelector('#al-cal-prev-week')?.addEventListener('click', () => { this.calendarDate.setMonth(this.calendarDate.getMonth() - 1); this.selectedWeekStart = null; this.render(); });
+    content.querySelector('#al-cal-prev-month')?.addEventListener('click', () => { this.calendarDate.setFullYear(this.calendarDate.getFullYear() - 1); this.selectedWeekStart = null; this.render(); });
+    content.querySelector('#al-cal-prev-year')?.addEventListener('click', () => { this.calendarDate.setFullYear(this.calendarDate.getFullYear() - 1); this.selectedWeekStart = null; this.render(); });
+    
+    // 下一个
+    content.querySelector('#al-cal-next-day')?.addEventListener('click', () => { this.calendarDate.setMonth(this.calendarDate.getMonth() + 1); this.selectedWeekStart = null; this.render(); });
+    content.querySelector('#al-cal-next-week')?.addEventListener('click', () => { this.calendarDate.setMonth(this.calendarDate.getMonth() + 1); this.selectedWeekStart = null; this.render(); });
+    content.querySelector('#al-cal-next-month')?.addEventListener('click', () => { this.calendarDate.setFullYear(this.calendarDate.getFullYear() + 1); this.selectedWeekStart = null; this.render(); });
+    content.querySelector('#al-cal-next-year')?.addEventListener('click', () => { this.calendarDate.setFullYear(this.calendarDate.getFullYear() + 1); this.selectedWeekStart = null; this.render(); });
+    
+    // 日视图：点击日期打开日记
+    content.querySelectorAll('.al-cal-day:not(.empty)').forEach(day => {
+      day.addEventListener('click', () => {
+        const dateStr = day.getAttribute('data-date');
+        if (dateStr) {
+          this.openDailyNote(dateStr);
+        }
+      });
+    });
+    
+    // 周视图：点击选中整行并打开周记
+    content.querySelectorAll('[data-week-start]').forEach(day => {
+      day.addEventListener('click', () => {
+        const weekStart = day.getAttribute('data-week-start');
+        if (weekStart) {
+          this.selectedWeekStart = weekStart;
+          // 重新渲染以显示选中效果
+          this.render();
+          this.openWeeklyNoteByDate(weekStart);
+        }
+      });
+    });
+    
+    // 月视图：点击月份跳转到周视图
+    content.querySelectorAll('.al-cal-month-item').forEach(month => {
+      month.addEventListener('click', () => {
+        const yearNum = parseInt(month.getAttribute('data-year') || this.calendarDate.getFullYear().toString());
+        const monthNum = parseInt(month.getAttribute('data-month') || '1') - 1;
+        this.calendarDate.setFullYear(yearNum);
+        this.calendarDate.setMonth(monthNum);
+        this.calendarMode = 'week';
+        this.render();
+      });
+    });
+    
+    // 年视图：点击年份跳转到月视图
+    content.querySelectorAll('.al-cal-year-item').forEach(year => {
+      year.addEventListener('click', () => {
+        const yearNum = parseInt(year.getAttribute('data-year') || this.calendarDate.getFullYear().toString());
+        this.calendarDate.setFullYear(yearNum);
+        this.calendarMode = 'month';
+        this.render();
+      });
+    });
+  }
+  
+  private async openDailyNote(dateStr: string): Promise<void> {
+    try {
+      const date = new Date(dateStr);
+      const noteManager = this.plugin.getNoteManager();
+      const file = await noteManager.getOrCreateDailyNote(date);
+      new Notice(`已打开 ${dateStr} 日记`);
+    } catch (error) {
+      new Notice('打开日记失败');
+    }
+  }
+  
+  private async openWeeklyNoteByDate(weekStartStr: string): Promise<void> {
+    try {
+      const weekStart = new Date(weekStartStr);
+      const startOfYear = new Date(weekStart.getFullYear(), 0, 1);
+      const days = Math.floor((weekStart.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+      const weekNumber = Math.ceil((days + startOfYear.getDay() + 1) / 7);
+      const weekKey = `${weekStart.getFullYear()}-W${weekNumber.toString().padStart(2, '0')}`;
+      await this.plugin.getNoteManager().getOrCreateWeeklyNote(weekKey);
+      new Notice(`已打开 ${weekKey} 周记`);
+    } catch (error) {
+      new Notice('打开周记失败');
+    }
   }
   
   private showFieldSettingsModal(): void {
@@ -633,6 +856,10 @@ export class DashboardView extends ItemView {
       .al-modal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:flex;align-items:center;justify-content:center}.al-modal-bg{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5)}.al-modal-box{position:relative;background:var(--background-primary);border-radius:12px;width:90%;max-width:420px;border:1px solid var(--border-color);box-shadow:0 10px 40px rgba(0,0,0,.3);overflow:hidden}.al-modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);font-size:16px;font-weight:600;color:var(--text-primary)}.al-modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-secondary);line-height:1}#al-goal-form,#al-task-form{padding:20px}.al-form-item{margin-bottom:16px}.al-form-item label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--text-secondary)}.al-form-item input,.al-form-item select{width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--background-secondary);color:var(--text-primary);box-sizing:border-box}.al-form-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}.al-view-spacer{flex:1}.al-view-settings-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s;margin-left:auto}.al-view-settings-btn:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-field-settings-modal{max-width:480px}.al-field-settings-modal .al-modal-body{padding:20px}.al-field-settings-desc{font-size:13px;color:var(--text-secondary);margin:0 0 16px}.al-field-toggles{display:flex;flex-wrap:wrap;gap:8px}.al-field-toggle-btn{padding:8px 14px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;transition:all .15s}.al-field-toggle-btn:hover{border-color:var(--interactive-accent)}.al-field-toggle-btn.selected{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-modal-footer{display:flex;justify-content:flex-end;gap:10px;padding:16px 20px;border-top:1px solid var(--border-color)}.al-btn{padding:8px 16px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px}.al-btn:hover{background:var(--background-modifier-hover)}
       @media(max-width:800px){.al-body{flex-direction:column}.al-sidebar{width:100%;max-width:none;border-left:none;border-top:1px solid var(--border-color);padding:16px}.al-header-actions{flex-wrap:wrap;gap:6px}.al-header-actions button{min-width:80px}.al-board-column{flex:0 0 220px}.al-detail-content{flex-direction:column}.al-detail-sidebar{width:100%;border-left:none;border-top:1px solid var(--border-color)}}
       @media(max-width:640px){.al-header{flex-direction:column;align-items:flex-start;gap:12px;padding:12px 16px}.al-view-tabs{padding:8px 12px;overflow-x:auto}.al-view-tab{padding:6px 12px;font-size:12px}.al-header-actions{width:100%;justify-content:stretch}.al-header-actions button{flex:1;min-width:0;justify-content:center;gap:4px;font-size:11px}.al-main{padding:12px;gap:12px}.al-stats{grid-template-columns:repeat(2,1fr);gap:8px}.al-stat{padding:12px}.al-stat-num{font-size:24px}.al-detail-header{flex-wrap:wrap;padding:12px 16px}.al-detail-title h2{font-size:16px}.al-detail-main{padding:16px}.al-detail-stats{flex-wrap:wrap}.al-detail-stat{min-width:80px}.al-board-view{padding:8px;gap:8px}.al-board-column{flex:0 0 180px}.al-gallery-view{padding:12px}.al-gallery-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}.al-gallery-card{padding:12px}.al-gallery-card-title{font-size:13px}}
+      .al-panel-calendar{height:auto}.al-calendar-body{padding:0}.al-calendar-modes{display:flex;gap:4px;padding:8px;border-bottom:1px solid var(--border-color)}.al-calendar-mode-btn{padding:4px 10px;border:1px solid var(--border-color);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px;transition:all .15s}.al-calendar-mode-btn:hover{color:var(--text-primary);border-color:var(--interactive-accent)}.al-calendar-mode-btn.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-calendar-content{padding:8px}.al-calendar-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.al-calendar-nav button{background:none;border:none;cursor:pointer;color:var(--text-secondary);padding:4px 8px;border-radius:4px}.al-calendar-nav button:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-calendar-title{font-size:13px;font-weight:500;color:var(--text-primary)}
+      .al-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}.al-cal-day-header{font-size:11px;color:var(--text-secondary);padding:4px}.al-cal-day{font-size:12px;padding:6px;border-radius:4px;cursor:pointer;transition:all .15s;color:var(--text-primary)}.al-cal-day:hover{background:var(--background-modifier-hover)}.al-cal-day.empty{background:transparent;cursor:default}.al-cal-day.today{background:var(--interactive-accent);color:#fff}.al-cal-day.week-selected{background:var(--interactive-accent-faint,color-mix(in srgb,var(--interactive-accent) 20%,transparent));border:1px solid var(--interactive-accent)}.al-cal-day.today.week-selected{background:var(--interactive-accent);color:#fff}
+      .al-cal-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.al-cal-month-item{padding:10px;text-align:center;border-radius:6px;border:1px solid var(--border-color);cursor:pointer;font-size:12px;color:var(--text-secondary);transition:all .15s}.al-cal-month-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-month-item.current{border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}
+      .al-cal-year-display{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 0}.al-cal-year-item{padding:12px 32px;font-size:24px;font-weight:600;color:var(--text-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-cal-year-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-year-item.current{font-size:32px;border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}
     `;
     document.head.appendChild(style);
   }
