@@ -3,7 +3,7 @@
  */
 
 import { ItemView, Notice } from 'obsidian';
-import { Goal, Task, GoalLevel, TaskPriority } from '../types';
+import { Goal, Task, GoalLevel, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS } from '../types';
 import AmazingLife from '../main';
 
 export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
@@ -37,6 +37,23 @@ export class DashboardView extends ItemView {
       console.error('[AL] Error loading data:', error);
       new Notice('加载数据失败: ' + (error as Error).message);
     }
+  }
+  
+  private getCurrentViewType(): 'dashboard' | 'board' | 'gallery' | 'list' | 'goal' {
+    if (this.currentView === 'board') return 'board';
+    if (this.currentView === 'gallery') return 'gallery';
+    if (this.currentView === 'goal-detail') return 'goal';
+    if (this.currentView === 'list') return 'list';
+    return 'dashboard';
+  }
+  
+  private getTaskFields(): TaskField[] {
+    return (this.plugin.getSettings().viewFields[this.getCurrentViewType()] || ['title', 'priority', 'due']) as TaskField[];
+  }
+  
+  private getGoalFields(): GoalField[] {
+    const viewType = this.currentView === 'gallery' ? 'gallery' : 'goal';
+    return (this.plugin.getSettings().viewFields[viewType] || ['level', 'title', 'progress']) as GoalField[];
   }
   
   private getGoalTitle(goalId: string | null): string {
@@ -87,6 +104,8 @@ export class DashboardView extends ItemView {
           <button class="al-view-tab ${this.currentView === 'list' ? 'active' : ''}" data-view="list"><span>📋</span><span>列表</span></button>
           <button class="al-view-tab ${this.currentView === 'board' ? 'active' : ''}" data-view="board"><span>📌</span><span>看板</span></button>
           <button class="al-view-tab ${this.currentView === 'gallery' ? 'active' : ''}" data-view="gallery"><span>🖼️</span><span>画廊</span></button>
+          <div class="al-view-spacer"></div>
+          <button class="al-view-settings-btn" id="al-open-field-settings" title="字段设置"><span>⚙️</span><span>字段</span></button>
         </div>
         
         <div class="al-body">
@@ -307,8 +326,31 @@ export class DashboardView extends ItemView {
     const priorityColors = ['var(--text-red)', 'var(--text-orange)', 'var(--text-yellow)', 'var(--text-green)', 'var(--text-muted)'];
     const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
     const statusNames: Record<string, string> = { 'pending': '待办', 'in-progress': '进行中', 'completed': '已完成', 'cancelled': '已取消' };
+    const fields = this.getTaskFields();
     if (allTasks.length === 0) return `<div class="al-table-view"><div class="al-table-empty">${this.renderEmpty('📋', '暂无任务', '先创建目标，再添加任务')}</div></div>`;
-    return `<div class="al-table-view"><table class="al-table"><thead><tr><th style="width:40px"></th><th>任务名称</th><th style="width:120px">关联目标</th><th style="width:80px">优先级</th><th style="width:100px">状态</th><th style="width:120px">截止日期</th></tr></thead><tbody>${allTasks.map(task => {const goalLevel=this.getGoalLevel(task['A-goal']);return `<tr class="al-table-row ${task['A-status']==='completed'?'completed':''}" data-task-id="${task['A-id']}"><td><div class="al-task-check ${task['A-status']==='completed'?'checked':''}" data-task-id="${task['A-id']}">${task['A-status']==='completed'?'✓':''}</div></td><td class="al-table-title">${task['A-title']}</td><td><span class="al-goal-tag" style="color:${levelColors[goalLevel]||'var(--text-muted)'}" data-goal-id="${task['A-goal']}">${this.getGoalTitle(task['A-goal'])}</span></td><td><span style="color:${priorityColors[task['A-priority']-1]}">${priorityNames[task['A-priority']-1]}</span></td><td><span class="al-status-badge status-${task['A-status']}">${statusNames[task['A-status']]}</span></td><td>${task['A-due']||'-'}</td></tr>`}).join('')}</tbody></table></div>`;
+    
+    // 构建表头
+    let headerHtml = '<th style="width:40px"></th>';
+    if (fields.includes('title')) headerHtml += '<th>任务名称</th>';
+    if (fields.includes('goal')) headerHtml += '<th style="width:120px">关联目标</th>';
+    if (fields.includes('priority')) headerHtml += '<th style="width:80px">优先级</th>';
+    if (fields.includes('status')) headerHtml += '<th style="width:100px">状态</th>';
+    if (fields.includes('due')) headerHtml += '<th style="width:120px">截止日期</th>';
+    
+    // 构建表格行
+    const rowsHtml = allTasks.map(task => {
+      const goalLevel = this.getGoalLevel(task['A-goal']);
+      let rowHtml = `<tr class="al-table-row ${task['A-status']==='completed'?'completed':''}" data-task-id="${task['A-id']}"><td><div class="al-task-check ${task['A-status']==='completed'?'checked':''}" data-task-id="${task['A-id']}">${task['A-status']==='completed'?'✓':''}</div></td>`;
+      if (fields.includes('title')) rowHtml += `<td class="al-table-title">${task['A-title']}</td>`;
+      if (fields.includes('goal')) rowHtml += `<td><span class="al-goal-tag" style="color:${levelColors[goalLevel]||'var(--text-muted)'}" data-goal-id="${task['A-goal']}">${this.getGoalTitle(task['A-goal'])}</span></td>`;
+      if (fields.includes('priority')) rowHtml += `<td><span style="color:${priorityColors[task['A-priority']-1]}">${priorityNames[task['A-priority']-1]}</span></td>`;
+      if (fields.includes('status')) rowHtml += `<td><span class="al-status-badge status-${task['A-status']}">${statusNames[task['A-status']]}</span></td>`;
+      if (fields.includes('due')) rowHtml += `<td>${task['A-due']||'-'}</td>`;
+      rowHtml += '</tr>';
+      return rowHtml;
+    }).join('');
+    
+    return `<div class="al-table-view"><table class="al-table"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
   }
   
   private renderBoardView(allGoals: Goal[], allTasks: Task[]): string {
@@ -322,7 +364,26 @@ export class DashboardView extends ItemView {
     const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
     const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
     if (allGoals.length === 0) return `<div class="al-gallery-view"><div class="al-gallery-empty">${this.renderEmpty('🖼️', '暂无内容', '创建目标来开始规划')}</div></div>`;
-    return `<div class="al-gallery-view"><div class="al-gallery-section"><div class="al-gallery-section-title">🎯 目标 (${allGoals.length})</div><div class="al-gallery-grid">${allGoals.map(goal => {const gt=allTasks.filter(t=>t['A-goal']===goal['A-id']);return `<div class="al-gallery-card al-gallery-goal" data-goal-id="${goal['A-id']}"><div class="al-gallery-card-header"><span class="al-goal-level" data-level="${goal['A-level']}" style="background:${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span></div><div class="al-gallery-card-title">${goal['A-title']}</div><div class="al-gallery-card-progress"><div class="al-progress-bar"><div class="al-progress-fill" style="width:${goal['A-progress']}%"></div></div><span>${goal['A-progress']}%</span></div>${goal['A-due']?`<div class="al-gallery-card-meta">📅 ${goal['A-due']}</div>`:''}<div class="al-gallery-card-tasks"><span>📋 ${gt.length} 个任务</span></div></div>`}).join('')}</div></div></div>`;
+    
+    const fields = this.getGoalFields();
+    const cardsHtml = allGoals.map(goal => {
+      const gt = allTasks.filter(t => t['A-goal'] === goal['A-id']);
+      let cardContent = `<div class="al-gallery-card al-gallery-goal" data-goal-id="${goal['A-id']}"><div class="al-gallery-card-header"><span class="al-goal-level" data-level="${goal['A-level']}" style="background:${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span></div>`;
+      
+      if (fields.includes('title')) cardContent += `<div class="al-gallery-card-title">${goal['A-title']}</div>`;
+      if (fields.includes('progress')) cardContent += `<div class="al-gallery-card-progress"><div class="al-progress-bar"><div class="al-progress-fill" style="width:${goal['A-progress']}%"></div></div><span>${goal['A-progress']}%</span></div>`;
+      if (fields.includes('due') && goal['A-due']) cardContent += `<div class="al-gallery-card-meta">📅 ${goal['A-due']}</div>`;
+      if (fields.includes('tasksCount')) cardContent += `<div class="al-gallery-card-tasks"><span>📋 ${gt.length} 个任务</span></div>`;
+      if (fields.includes('completedTasksCount')) {
+        const completed = gt.filter(t => t['A-status'] === 'completed').length;
+        cardContent += `<div class="al-gallery-card-tasks"><span>✓ 已完成 ${completed} 个</span></div>`;
+      }
+      
+      cardContent += '</div>';
+      return cardContent;
+    }).join('');
+    
+    return `<div class="al-gallery-view"><div class="al-gallery-section"><div class="al-gallery-section-title">🎯 目标 (${allGoals.length})</div><div class="al-gallery-grid">${cardsHtml}</div></div></div>`;
   }
   
   private calculateWeekComplete(completedTasks: Task[]): number {
@@ -333,14 +394,50 @@ export class DashboardView extends ItemView {
   
   private renderEmpty(icon: string, title: string, desc: string): string { return `<div class="al-empty"><span>${icon}</span><div>${title}</div><div class="al-empty-desc">${desc}</div></div>`; }
   
-  private renderGoals(goals: Goal[]): string {
+  private renderGoalFields(goal: Goal, fields: GoalField[], allTasks: Task[]): string {
     const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    return goals.slice(0, 5).map(goal => `<div class="al-goal" data-goal-id="${goal['A-id']}"><div class="al-goal-top"><span class="al-goal-level" data-level="${goal['A-level']}">${levelNames[goal['A-level']]}</span><span class="al-goal-status ${goal['A-status']}">${goal['A-status']==='active'?'进行中':'已完成'}</span></div><div class="al-goal-title">${goal['A-title']}</div><div class="al-goal-progress"><div class="al-progress-bar"><div class="al-progress-fill" style="width:${goal['A-progress']}%"></div></div><span>${goal['A-progress']}%</span></div></div>`).join('');
+    const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
+    const goalTasks = allTasks.filter(t => t['A-goal'] === goal['A-id']);
+    const completedCount = goalTasks.filter(t => t['A-status'] === 'completed').length;
+    
+    let html = '';
+    if (fields.includes('level')) html += `<span class="al-goal-level" data-level="${goal['A-level']}">${levelNames[goal['A-level']]}</span>`;
+    if (fields.includes('status')) html += `<span class="al-goal-status ${goal['A-status']}">${statusNames[goal['A-status']]}</span>`;
+    if (fields.includes('title')) html += `<div class="al-goal-title">${goal['A-title']}</div>`;
+    if (fields.includes('progress')) html += `<div class="al-goal-progress"><div class="al-progress-bar"><div class="al-progress-fill" style="width:${goal['A-progress']}%"></div></div><span>${goal['A-progress']}%</span></div>`;
+    if (fields.includes('due') && goal['A-due']) html += `<div class="al-goal-due">📅 ${goal['A-due']}</div>`;
+    if (fields.includes('tasksCount')) html += `<div class="al-goal-meta">📋 ${goalTasks.length} 个任务</div>`;
+    if (fields.includes('completedTasksCount')) html += `<div class="al-goal-meta">✓ 已完成 ${completedCount} 个</div>`;
+    
+    return html;
+  }
+  
+  private renderGoals(goals: Goal[]): string {
+    const fields = this.getGoalFields();
+    const allTasks = this.plugin.getTaskManager().getAllTasks();
+    return goals.slice(0, 5).map(goal => `<div class="al-goal" data-goal-id="${goal['A-id']}"><div class="al-goal-top">${this.renderGoalFields(goal, fields, allTasks)}</div></div>`).join('');
+  }
+  
+  private renderTaskFields(task: Task, fields: TaskField[]): string {
+    const priorityColors: Record<number, string> = { 1: '--text-red', 2: '--text-orange', 3: '--text-yellow', 4: '--text-green', 5: '--text-muted' };
+    const statusNames: Record<string, string> = { 'pending': '待办', 'in-progress': '进行中', 'completed': '已完成', 'cancelled': '已取消' };
+    
+    let metaHtml = '';
+    if (fields.includes('priority')) metaHtml += `<span style="color:var(${priorityColors[task['A-priority']]})">${['最高','高','中','低','最低'][task['A-priority']-1]}</span>`;
+    if (fields.includes('status')) metaHtml += `<span class="al-status-badge status-${task['A-status']}">${statusNames[task['A-status']]}</span>`;
+    if (fields.includes('due') && task['A-due']) metaHtml += `<span class="al-task-due">${task['A-due']}</span>`;
+    if (fields.includes('goal')) metaHtml += `<span class="al-goal-tag">${this.getGoalTitle(task['A-goal'])}</span>`;
+    if (fields.includes('tags') && task['A-tags'].length > 0) metaHtml += `<span>${task['A-tags'].map(t => '#' + t).join(' ')}</span>`;
+    
+    let titleHtml = '';
+    if (fields.includes('title')) titleHtml = `<div class="al-task-title ${task['A-status']==='completed'?'done':''}">${task['A-title']}</div>`;
+    
+    return `${titleHtml}${metaHtml ? `<div class="al-task-meta">${metaHtml}</div>` : ''}`;
   }
   
   private renderTasks(tasks: Task[]): string {
-    const priorityColors: Record<number, string> = { 1: '--text-red', 2: '--text-orange', 3: '--text-yellow', 4: '--text-green', 5: '--text-muted' };
-    return tasks.slice(0, 10).map(task => `<div class="al-task" data-task-id="${task['A-id']}"><div class="al-task-check ${task['A-status']==='completed'?'checked':''}" data-task-id="${task['A-id']}">${task['A-status']==='completed'?'✓':''}</div><div class="al-task-content"><div class="al-task-title ${task['A-status']==='completed'?'done':''}">${task['A-title']}</div><div class="al-task-meta"><span style="color:var(${priorityColors[task['A-priority']]})">${['最高','高','中','低','最低'][task['A-priority']-1]}</span>${task['A-due']?`<span class="al-task-due">${task['A-due']}</span>`:''}</div></div></div>`).join('');
+    const fields = this.getTaskFields();
+    return tasks.slice(0, 10).map(task => `<div class="al-task" data-task-id="${task['A-id']}"><div class="al-task-check ${task['A-status']==='completed'?'checked':''}" data-task-id="${task['A-id']}">${task['A-status']==='completed'?'✓':''}</div><div class="al-task-content">${this.renderTaskFields(task, fields)}</div></div>`).join('');
   }
   
   private bindEvents(): void {
@@ -379,12 +476,101 @@ export class DashboardView extends ItemView {
     
     // Task checkbox clicks
     content.querySelectorAll('.al-task-check').forEach(checkbox => { checkbox.addEventListener('click', async (e) => { e.stopPropagation(); const taskId = (e.target as HTMLElement).getAttribute('data-task-id'); if (taskId) { await this.toggleTaskStatus(taskId); } }); });
+    
+    // Field settings button
+    content.querySelector('#al-open-field-settings')?.addEventListener('click', () => this.showFieldSettingsModal());
   }
   
   private async toggleTaskStatus(taskId: string): Promise<void> {
     const task = this.plugin.getTaskManager().getTask(taskId);
     if (!task) return;
     try { if (task['A-status'] === 'completed') { await this.plugin.getTaskManager().updateTask(taskId, { status: 'pending' }); } else { await this.plugin.getTaskManager().completeTask(taskId); } this.loadAndRender(); } catch (error) { new Notice('更新失败: ' + (error as Error).message); }
+  }
+  
+  private showFieldSettingsModal(): void {
+    const viewKey = this.getCurrentViewType();
+    const isGoalView = viewKey === 'gallery' || viewKey === 'goal';
+    const settings = this.plugin.getSettings();
+    const currentFields = isGoalView 
+      ? (settings.viewFields[viewKey as 'gallery' | 'goal'] as GoalField[])
+      : (settings.viewFields[viewKey as 'dashboard' | 'board' | 'list'] as TaskField[]);
+    
+    const fieldLabels = isGoalView ? GOAL_FIELD_LABELS : TASK_FIELD_LABELS;
+    const fields = Object.keys(fieldLabels) as (GoalField | TaskField)[];
+    const viewNames: Record<string, string> = { dashboard: '仪表盘任务', board: '看板任务', list: '列表任务', gallery: '画廊目标', goal: '目标详情' };
+    
+    const modal = document.createElement('div');
+    modal.className = 'al-modal';
+    
+    const fieldsHtml = fields.map(field => {
+      const isSelected = currentFields.includes(field as any);
+      return `<button class="al-field-toggle-btn ${isSelected ? 'selected' : ''}" data-field="${field}">${fieldLabels[field as keyof typeof fieldLabels]}</button>`;
+    }).join('');
+    
+    modal.innerHTML = `
+      <div class="al-modal-bg"></div>
+      <div class="al-modal-box al-field-settings-modal">
+        <div class="al-modal-header">
+          <span>⚙️ 字段设置 - ${viewNames[viewKey]}</span>
+          <button class="al-modal-close">×</button>
+        </div>
+        <div class="al-modal-body">
+          <p class="al-field-settings-desc">选择在此视图中显示的字段：</p>
+          <div class="al-field-toggles">${fieldsHtml}</div>
+        </div>
+        <div class="al-modal-footer">
+          <button class="al-btn" id="al-reset-fields">恢复默认</button>
+          <button class="mod-cta" id="al-save-fields">保存</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    const close = () => modal.remove();
+    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
+    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
+    
+    // Field toggle clicks
+    modal.querySelectorAll('.al-field-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const field = btn.getAttribute('data-field')!;
+        const idx = currentFields.indexOf(field as any);
+        if (idx >= 0 && currentFields.length > 1) {
+          currentFields.splice(idx, 1);
+          btn.classList.remove('selected');
+        } else if (idx < 0) {
+          currentFields.push(field as any);
+          btn.classList.add('selected');
+        }
+      });
+    });
+    
+    // Reset button
+    modal.querySelector('#al-reset-fields')?.addEventListener('click', () => {
+      const defaults = DEFAULT_VIEW_FIELDS[viewKey as keyof typeof DEFAULT_VIEW_FIELDS];
+      currentFields.length = 0;
+      currentFields.push(...defaults as any);
+      modal.querySelectorAll('.al-field-toggle-btn').forEach(btn => {
+        const field = btn.getAttribute('data-field')!;
+        if (currentFields.includes(field as any)) {
+          btn.classList.add('selected');
+        } else {
+          btn.classList.remove('selected');
+        }
+      });
+    });
+    
+    // Save button
+    modal.querySelector('#al-save-fields')?.addEventListener('click', async () => {
+      settings.viewFields[viewKey as keyof typeof settings.viewFields] = [...currentFields] as any;
+      await this.plugin.saveData(settings);
+      // 刷新插件设置缓存
+      this.plugin.getSettings().viewFields = settings.viewFields;
+      new Notice('字段设置已保存');
+      close();
+      this.render();
+    });
   }
   
   private showCreateGoalModal(): void {
@@ -444,7 +630,7 @@ export class DashboardView extends ItemView {
       .al-goal{padding:12px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-goal:hover{border-color:var(--interactive-accent)}.al-goal-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.al-goal-level{font-size:11px;padding:2px 6px;border-radius:4px;background:var(--interactive-accent);color:#fff}.al-goal-level[data-level="1"]{background:var(--text-purple)}.al-goal-level[data-level="2"]{background:var(--text-blue)}.al-goal-level[data-level="3"]{background:var(--interactive-accent)}.al-goal-level[data-level="4"]{background:var(--text-green)}.al-goal-status{font-size:10px;padding:2px 6px;border-radius:4px;background:var(--text-green);color:#fff}.al-goal-status.completed{background:var(--text-muted)}.al-goal-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:8px}.al-goal-progress{display:flex;align-items:center;gap:8px}.al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-progress-fill{height:100%;background:var(--interactive-accent);border-radius:3px;transition:width .3s}
       .al-task{display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:background .15s}.al-task:hover{background:var(--background-modifier-hover)}.al-task-check{width:18px;height:18px;border:2px solid var(--border-color);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;flex-shrink:0;margin-top:1px;cursor:pointer}.al-task-check.checked{background:var(--text-green);border-color:var(--text-green)}.al-task-content{flex:1;min-width:0}.al-task-title{font-size:13px;color:var(--text-primary);margin-bottom:4px}.al-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-task-meta{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--text-secondary)}.al-task-due{color:var(--text-red)}
       .al-quick-btn{display:flex;align-items:center;gap:8px;padding:10px 12px;width:100%;text-align:left}.al-quick-btn span:first-child{font-size:18px}.al-quick-btn span:last-child{font-size:13px;color:var(--text-secondary)}
-      .al-modal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:flex;align-items:center;justify-content:center}.al-modal-bg{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5)}.al-modal-box{position:relative;background:var(--background-primary);border-radius:12px;width:90%;max-width:420px;border:1px solid var(--border-color);box-shadow:0 10px 40px rgba(0,0,0,.3);overflow:hidden}.al-modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);font-size:16px;font-weight:600;color:var(--text-primary)}.al-modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-secondary);line-height:1}#al-goal-form,#al-task-form{padding:20px}.al-form-item{margin-bottom:16px}.al-form-item label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--text-secondary)}.al-form-item input,.al-form-item select{width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--background-secondary);color:var(--text-primary);box-sizing:border-box}.al-form-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}
+      .al-modal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:flex;align-items:center;justify-content:center}.al-modal-bg{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5)}.al-modal-box{position:relative;background:var(--background-primary);border-radius:12px;width:90%;max-width:420px;border:1px solid var(--border-color);box-shadow:0 10px 40px rgba(0,0,0,.3);overflow:hidden}.al-modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);font-size:16px;font-weight:600;color:var(--text-primary)}.al-modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-secondary);line-height:1}#al-goal-form,#al-task-form{padding:20px}.al-form-item{margin-bottom:16px}.al-form-item label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--text-secondary)}.al-form-item input,.al-form-item select{width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--background-secondary);color:var(--text-primary);box-sizing:border-box}.al-form-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}.al-view-spacer{flex:1}.al-view-settings-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s;margin-left:auto}.al-view-settings-btn:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-field-settings-modal{max-width:480px}.al-field-settings-modal .al-modal-body{padding:20px}.al-field-settings-desc{font-size:13px;color:var(--text-secondary);margin:0 0 16px}.al-field-toggles{display:flex;flex-wrap:wrap;gap:8px}.al-field-toggle-btn{padding:8px 14px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;transition:all .15s}.al-field-toggle-btn:hover{border-color:var(--interactive-accent)}.al-field-toggle-btn.selected{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-modal-footer{display:flex;justify-content:flex-end;gap:10px;padding:16px 20px;border-top:1px solid var(--border-color)}.al-btn{padding:8px 16px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px}.al-btn:hover{background:var(--background-modifier-hover)}
       @media(max-width:800px){.al-body{flex-direction:column}.al-sidebar{width:100%;max-width:none;border-left:none;border-top:1px solid var(--border-color);padding:16px}.al-header-actions{flex-wrap:wrap;gap:6px}.al-header-actions button{min-width:80px}.al-board-column{flex:0 0 220px}.al-detail-content{flex-direction:column}.al-detail-sidebar{width:100%;border-left:none;border-top:1px solid var(--border-color)}}
       @media(max-width:640px){.al-header{flex-direction:column;align-items:flex-start;gap:12px;padding:12px 16px}.al-view-tabs{padding:8px 12px;overflow-x:auto}.al-view-tab{padding:6px 12px;font-size:12px}.al-header-actions{width:100%;justify-content:stretch}.al-header-actions button{flex:1;min-width:0;justify-content:center;gap:4px;font-size:11px}.al-main{padding:12px;gap:12px}.al-stats{grid-template-columns:repeat(2,1fr);gap:8px}.al-stat{padding:12px}.al-stat-num{font-size:24px}.al-detail-header{flex-wrap:wrap;padding:12px 16px}.al-detail-title h2{font-size:16px}.al-detail-main{padding:16px}.al-detail-stats{flex-wrap:wrap}.al-detail-stat{min-width:80px}.al-board-view{padding:8px;gap:8px}.al-board-column{flex:0 0 180px}.al-gallery-view{padding:12px}.al-gallery-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}.al-gallery-card{padding:12px}.al-gallery-card-title{font-size:13px}}
     `;

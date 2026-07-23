@@ -243,4 +243,9 @@ export default class AmazingLife extends Plugin {
   getSettings(): PluginSettings {
     return this.lifeSettings;
   }
+  
+  async saveData(data: any): Promise<void> {
+    this.lifeSettings = data;
+    await super.saveData(data);
+  }
 }
