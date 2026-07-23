@@ -1,0 +1,12 @@
+{
+  "id": "amazing-life",
+  "name": "Amazing Life",
+  "version": "1.0.0",
+  "minAppVersion": "0.15.0",
+  "description": "Life management plugin for Obsidian",
+  "author": "Amazing Life Team",
+  "authorUrl": "",
+  "fundingUrl": "",
+  "license": "MIT",
+  "isDesktopOnly": false
+}
