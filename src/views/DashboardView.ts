@@ -1,10 +1,9 @@
 /**
- * Dashboard View
- * Main dashboard interface for Amazing Life
+ * Dashboard View - Clean Layout Version
  */
 
-import { App, ItemView, WorkspaceLeaf, Notice, TFile } from 'obsidian';
-import { GoalTree, Task, LEVEL_NAMES, STATUS_NAMES, PRIORITY_NAMES, GoalLevel, TaskPriority } from '../types';
+import { ItemView, Notice } from 'obsidian';
+import { Goal, Task, GoalLevel, TaskPriority } from '../types';
 import AmazingLife from '../main';
 
 export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
@@ -12,7 +11,7 @@ export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
 export class DashboardView extends ItemView {
   private plugin: AmazingLife;
   
-  constructor(leaf: WorkspaceLeaf, plugin: AmazingLife) {
+  constructor(leaf: any, plugin: AmazingLife) {
     super(leaf);
     this.plugin = plugin;
   }
@@ -22,332 +21,351 @@ export class DashboardView extends ItemView {
   }
   
   getDisplayText(): string {
-    return 'Amazing Life 仪表盘';
+    return 'Amazing Life';
+  }
+  
+  getIcon(): string {
+    return 'target';
   }
   
   async onOpen(): Promise<void> {
-    await this.render();
+    await this.loadAndRender();
   }
   
   async onClose(): Promise<void> {
-    // Clean up if needed
+    this.removeStyles();
   }
   
-  async render(): Promise<void> {
-    const container = this.containerEl;
-    container.empty();
+  private async loadAndRender(): Promise<void> {
+    try {
+      await this.plugin.getGoalManager().loadGoals();
+      await this.plugin.getTaskManager().loadTasks();
+      this.render();
+    } catch (error) {
+      console.error('[AL] Error loading data:', error);
+      new Notice('加载数据失败: ' + (error as Error).message);
+    }
+  }
+  
+  render(): void {
+    const content = this.contentEl;
+    content.empty();
+    content.className = 'al-dashboard';
     
-    // Header
-    const header = container.createDiv('dashboard-header');
-    header.innerHTML = `
-      <div class="dashboard-title">
-        <h1>🌟 Amazing Life</h1>
-        <p class="dashboard-subtitle">生活管理系统</p>
-      </div>
-      <div class="dashboard-actions">
-        <button class="dashboard-btn primary" id="create-goal-btn">+ 创建目标</button>
-        <button class="dashboard-btn" id="create-task-btn">+ 创建任务</button>
-      </div>
-    `;
-    
-    // Stats Overview
-    const stats = container.createDiv('dashboard-stats');
-    const goalTrees = this.plugin.getGoalManager().getGoalTree();
     const allGoals = this.plugin.getGoalManager().getAllGoals();
     const allTasks = this.plugin.getTaskManager().getAllTasks();
     const todayTasks = this.plugin.getTaskManager().getTodayTasks();
     const overdueTasks = this.plugin.getTaskManager().getOverdueTasks();
     const completedTasks = this.plugin.getTaskManager().getCompletedTasks();
     
-    const completedThisWeek = completedTasks.filter(t => {
-      if (!t['A-completed']) return false;
-      const completed = new Date(t['A-completed']);
-      const now = new Date();
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      return completed >= weekAgo;
-    }).length;
+    const weekComplete = this.calculateWeekComplete(completedTasks);
+    const activeTasks = allTasks.filter(t => t['A-status'] !== 'completed' && t['A-status'] !== 'cancelled').length;
     
-    stats.innerHTML = `
-      <div class="stat-card">
-        <div class="stat-value">${allGoals.length}</div>
-        <div class="stat-label">目标总数</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-value">${allTasks.length}</div>
-        <div class="stat-label">任务总数</div>
-      </div>
-      <div class="stat-card highlight">
-        <div class="stat-value">${todayTasks.length}</div>
-        <div class="stat-label">今日任务</div>
-      </div>
-      <div class="stat-card ${overdueTasks.length > 0 ? 'warning' : ''}">
-        <div class="stat-value">${overdueTasks.length}</div>
-        <div class="stat-label">逾期任务</div>
-      </div>
-      <div class="stat-card success">
-        <div class="stat-value">${completedThisWeek}</div>
-        <div class="stat-label">本周完成</div>
-      </div>
-    `;
-    
-    // Main Content - Two Columns
-    const main = container.createDiv('dashboard-main');
-    
-    // Left Column - Goals
-    const goalsSection = main.createDiv('dashboard-goals');
-    goalsSection.innerHTML = `
-      <div class="section-header">
-        <h2>🎯 目标概览</h2>
-        <button class="dashboard-btn small" id="view-all-goals">查看全部</button>
-      </div>
-      <div class="goals-list" id="goals-list">
-        ${this.renderGoalsList(goalTrees)}
-      </div>
-    `;
-    
-    // Right Column - Tasks
-    const tasksSection = main.createDiv('dashboard-tasks');
-    tasksSection.innerHTML = `
-      <div class="section-header">
-        <h2>📋 今日任务</h2>
-        <button class="dashboard-btn small" id="view-all-tasks">查看全部</button>
-      </div>
-      <div class="tasks-list" id="tasks-list">
-        ${this.renderTasksList(todayTasks)}
-      </div>
-    `;
-    
-    // Overdue Tasks Section
-    if (overdueTasks.length > 0) {
-      const overdueSection = container.createDiv('dashboard-overdue');
-      overdueSection.innerHTML = `
-        <div class="section-header warning">
-          <h2>⚠️ 逾期任务</h2>
+    content.innerHTML = `
+      <div class="al-page">
+        <div class="al-header">
+          <div class="al-header-left">
+            <div class="al-title">
+              <span>🎯</span>
+              <span>Amazing Life</span>
+            </div>
+            <div class="al-date">${new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</div>
+          </div>
+          <div class="al-header-actions">
+            <button id="al-refresh-btn">
+              <span>🔄</span>
+              <span>刷新</span>
+            </button>
+            <button class="mod-cta" id="al-create-goal-btn">
+              <span>+</span>
+              <span>创建目标</span>
+            </button>
+            <button class="mod-cta" id="al-create-task-btn">
+              <span>+</span>
+              <span>创建任务</span>
+            </button>
+          </div>
         </div>
-        <div class="tasks-list">
-          ${this.renderTasksList(overdueTasks, true)}
+        
+        <div class="al-body">
+          <div class="al-main">
+            <div class="al-stats">
+              <div class="al-stat">
+                <span class="al-stat-num">${todayTasks.length}</span>
+                <span class="al-stat-label">今日待办</span>
+              </div>
+              <div class="al-stat">
+                <span class="al-stat-num">${weekComplete}</span>
+                <span class="al-stat-label">本周完成</span>
+              </div>
+              <div class="al-stat ${overdueTasks.length > 0 ? 'al-stat-warning' : ''}">
+                <span class="al-stat-num">${overdueTasks.length}</span>
+                <span class="al-stat-label">逾期任务</span>
+              </div>
+              <div class="al-stat">
+                <span class="al-stat-num">${activeTasks}</span>
+                <span class="al-stat-label">进行中</span>
+              </div>
+            </div>
+            
+            <div class="al-panel">
+              <div class="al-panel-header">
+                <span>📋</span>
+                <span>今日任务</span>
+                <span class="al-panel-count">${todayTasks.length}</span>
+              </div>
+              <div class="al-panel-body">
+                ${todayTasks.length === 0 ? this.renderEmpty('📋', '暂无任务', '点击右上角按钮添加任务') : this.renderTasks(todayTasks)}
+              </div>
+            </div>
+            
+            <div class="al-panel">
+              <div class="al-panel-header">
+                <span>🎯</span>
+                <span>目标概览</span>
+                <span class="al-panel-count">${allGoals.length}</span>
+              </div>
+              <div class="al-panel-body">
+                ${allGoals.length === 0 ? this.renderEmpty('🎯', '暂无目标', '点击右上角按钮创建目标') : this.renderGoals(allGoals)}
+              </div>
+            </div>
+          </div>
+          
+          <div class="al-sidebar">
+            ${overdueTasks.length > 0 ? `
+            <div class="al-panel al-panel-overdue">
+              <div class="al-panel-header">
+                <span>⚠️</span>
+                <span>逾期任务</span>
+                <span class="al-panel-count al-count-overdue">${overdueTasks.length}</span>
+              </div>
+              <div class="al-panel-body">
+                ${this.renderTasks(overdueTasks)}
+              </div>
+            </div>
+            ` : ''}
+            
+            <div class="al-panel">
+              <div class="al-panel-header">
+                <span>⚡</span>
+                <span>快捷操作</span>
+              </div>
+              <div class="al-panel-body">
+                <button class="al-quick-btn" id="al-open-today">
+                  <span>📝</span>
+                  <span>今日日记</span>
+                </button>
+                <button class="al-quick-btn" id="al-open-weekly">
+                  <span>📅</span>
+                  <span>本周周记</span>
+                </button>
+                <button class="al-quick-btn" id="al-open-monthly">
+                  <span>📆</span>
+                  <span>本月月记</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-      `;
-    }
-    
-    // Quick Actions
-    const quickActions = container.createDiv('dashboard-quick-actions');
-    quickActions.innerHTML = `
-      <div class="section-header">
-        <h2>⚡ 快捷操作</h2>
-      </div>
-      <div class="quick-actions-grid">
-        <button class="quick-action-btn" id="open-today-note">
-          <span class="quick-action-icon">📝</span>
-          <span>今日日记</span>
-        </button>
-        <button class="quick-action-btn" id="open-weekly-note">
-          <span class="quick-action-icon">📅</span>
-          <span>本周周记</span>
-        </button>
-        <button class="quick-action-btn" id="open-monthly-note">
-          <span class="quick-action-icon">📆</span>
-          <span>本月月记</span>
-        </button>
-        <button class="quick-action-btn" id="refresh-dashboard">
-          <span class="quick-action-icon">🔄</span>
-          <span>刷新数据</span>
-        </button>
       </div>
     `;
     
-    // Bind events
     this.bindEvents();
-    
-    // Add styles
     this.addStyles();
   }
   
-  private renderGoalsList(goalTrees: GoalTree[]): string {
-    if (goalTrees.length === 0) {
-      return `<div class="empty-state">暂无目标，创建一个开始吧！</div>`;
-    }
-    
-    return goalTrees.slice(0, 5).map(tree => {
-      const goal = tree.goal;
-      const levelName = LEVEL_NAMES[goal['A-level']];
-      
-      return `
-        <div class="goal-card" data-goal-id="${goal['A-id']}">
-          <div class="goal-header">
-            <span class="goal-level-badge level-${goal['A-level']}">${levelName}</span>
-            <span class="goal-status ${goal['A-status']}">${goal['A-status'] === 'active' ? '进行中' : goal['A-status']}</span>
-          </div>
-          <h3 class="goal-title">${goal['A-title']}</h3>
-          <div class="goal-progress">
-            <div class="progress-bar">
-              <div class="progress-fill" style="width: ${goal['A-progress']}%"></div>
-            </div>
-            <span class="progress-text">${goal['A-progress']}%</span>
-          </div>
-          ${tree.children.length > 0 ? `<div class="goal-children">子目标: ${tree.children.length}</div>` : ''}
-        </div>
-      `;
-    }).join('');
+  private calculateWeekComplete(completedTasks: Task[]): number {
+    const now = new Date();
+    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return completedTasks.filter(t => {
+      if (!t['A-completed']) return false;
+      return new Date(t['A-completed']) >= weekAgo;
+    }).length;
   }
   
-  private renderTasksList(tasks: Task[], isOverdue = false): string {
-    if (tasks.length === 0) {
-      return `<div class="empty-state">暂无任务</div>`;
-    }
-    
-    return tasks.slice(0, 8).map(task => {
-      const priorityClass = task['A-priority'] <= 2 ? 'high' : task['A-priority'] <= 3 ? 'medium' : 'low';
-      const priorityName = PRIORITY_NAMES[task['A-priority']];
-      
-      return `
-        <div class="task-item ${isOverdue ? 'overdue' : ''}" data-task-id="${task['A-id']}">
-          <div class="task-checkbox ${task['A-status'] === 'completed' ? 'checked' : ''}">
-            ${task['A-status'] === 'completed' ? '✓' : ''}
+  private renderEmpty(icon: string, title: string, desc: string): string {
+    return `
+      <div class="al-empty">
+        <span>${icon}</span>
+        <div>${title}</div>
+        <div class="al-empty-desc">${desc}</div>
+      </div>
+    `;
+  }
+  
+  private renderGoals(goals: Goal[]): string {
+    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
+    return goals.slice(0, 5).map(goal => `
+      <div class="al-goal">
+        <div class="al-goal-top">
+          <span class="al-goal-level" data-level="${goal['A-level']}">${levelNames[goal['A-level']]}</span>
+          <span class="al-goal-status ${goal['A-status']}">${goal['A-status'] === 'active' ? '进行中' : '已完成'}</span>
+        </div>
+        <div class="al-goal-title">${goal['A-title']}</div>
+        <div class="al-goal-progress">
+          <div class="al-progress-bar">
+            <div class="al-progress-fill" style="width: ${goal['A-progress']}%"></div>
           </div>
-          <div class="task-content">
-            <span class="task-title ${task['A-status'] === 'completed' ? 'completed' : ''}">${task['A-title']}</span>
-            <div class="task-meta">
-              <span class="task-priority priority-${priorityClass}">${priorityName}</span>
-              ${task['A-due'] ? `<span class="task-due">${task['A-due']}</span>` : ''}
-            </div>
+          <span>${goal['A-progress']}%</span>
+        </div>
+      </div>
+    `).join('');
+  }
+  
+  private renderTasks(tasks: Task[]): string {
+    const priorityColors: Record<number, string> = {
+      1: '--text-red', 2: '--text-orange', 3: '--text-yellow', 4: '--text-green', 5: '--text-muted'
+    };
+    return tasks.slice(0, 10).map(task => `
+      <div class="al-task" data-task-id="${task['A-id']}">
+        <div class="al-task-check ${task['A-status'] === 'completed' ? 'checked' : ''}">
+          ${task['A-status'] === 'completed' ? '✓' : ''}
+        </div>
+        <div class="al-task-content">
+          <div class="al-task-title ${task['A-status'] === 'completed' ? 'done' : ''}">${task['A-title']}</div>
+          <div class="al-task-meta">
+            <span style="color: var(${priorityColors[task['A-priority']]})">${['最高', '高', '中', '低', '最低'][task['A-priority'] - 1]}</span>
+            ${task['A-due'] ? `<span class="al-task-due">${task['A-due']}</span>` : ''}
           </div>
         </div>
-      `;
-    }).join('');
+      </div>
+    `).join('');
   }
   
   private bindEvents(): void {
-    // Create Goal Button
-    const createGoalBtn = this.containerEl.querySelector('#create-goal-btn');
-    createGoalBtn?.addEventListener('click', () => {
+    const content = this.contentEl;
+    
+    content.querySelector('#al-refresh-btn')?.addEventListener('click', () => {
+      new Notice('正在刷新...');
+      this.loadAndRender();
+    });
+    
+    content.querySelector('#al-create-goal-btn')?.addEventListener('click', () => {
       this.showCreateGoalModal();
     });
     
-    // Create Task Button
-    const createTaskBtn = this.containerEl.querySelector('#create-task-btn');
-    createTaskBtn?.addEventListener('click', () => {
+    content.querySelector('#al-create-task-btn')?.addEventListener('click', () => {
       this.showCreateTaskModal();
     });
     
-    // Quick Actions
-    this.containerEl.querySelector('#open-today-note')?.addEventListener('click', () => {
+    content.querySelector('#al-open-today')?.addEventListener('click', () => {
       this.openTodayNote();
     });
     
-    this.containerEl.querySelector('#open-weekly-note')?.addEventListener('click', () => {
+    content.querySelector('#al-open-weekly')?.addEventListener('click', () => {
       this.openWeeklyNote();
     });
     
-    this.containerEl.querySelector('#open-monthly-note')?.addEventListener('click', () => {
+    content.querySelector('#al-open-monthly')?.addEventListener('click', () => {
       this.openMonthlyNote();
     });
     
-    this.containerEl.querySelector('#refresh-dashboard')?.addEventListener('click', () => {
-      this.refresh();
-    });
-    
-    // Task checkboxes
-    this.containerEl.querySelectorAll('.task-checkbox').forEach(checkbox => {
+    content.querySelectorAll('.al-task-check').forEach(checkbox => {
       checkbox.addEventListener('click', async (e) => {
-        const taskItem = (e.target as HTMLElement).closest('.task-item');
+        const taskItem = (e.target as HTMLElement).closest('.al-task');
         const taskId = taskItem?.getAttribute('data-task-id');
-        if (taskId) {
-          await this.toggleTaskStatus(taskId);
-        }
+        if (taskId) await this.toggleTaskStatus(taskId);
       });
     });
   }
   
-  private async showCreateGoalModal(): Promise<void> {
-    const modal = this.containerEl.createDiv('create-modal');
+  private async toggleTaskStatus(taskId: string): Promise<void> {
+    const task = this.plugin.getTaskManager().getTask(taskId);
+    if (!task) return;
+    try {
+      if (task['A-status'] === 'completed') {
+        await this.plugin.getTaskManager().updateTask(taskId, { status: 'pending' });
+      } else {
+        await this.plugin.getTaskManager().completeTask(taskId);
+      }
+      this.loadAndRender();
+    } catch (error) {
+      new Notice('更新失败: ' + (error as Error).message);
+    }
+  }
+  
+  private showCreateGoalModal(): void {
+    const modal = document.createElement('div');
+    modal.className = 'al-modal';
     modal.innerHTML = `
-      <div class="modal-backdrop"></div>
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>创建目标</h2>
-          <button class="modal-close">&times;</button>
+      <div class="al-modal-bg"></div>
+      <div class="al-modal-box">
+        <div class="al-modal-header">
+          <span>🎯 创建目标</span>
+          <button class="al-modal-close">×</button>
         </div>
-        <form class="modal-form" id="create-goal-form">
-          <div class="form-group">
-            <label for="goal-title">目标名称</label>
-            <input type="text" id="goal-title" required placeholder="输入目标名称...">
+        <form id="al-goal-form">
+          <div class="al-form-item">
+            <label>目标名称</label>
+            <input type="text" id="al-goal-title" required placeholder="例如：学习一门新语言">
           </div>
-          <div class="form-group">
-            <label for="goal-level">目标层级</label>
-            <select id="goal-level">
-              <option value="1">🎯 人生目标</option>
-              <option value="2">🎯 阶段目标</option>
-              <option value="3" selected>🎯 年度目标</option>
-              <option value="4">🎯 短期目标</option>
+          <div class="al-form-item">
+            <label>目标层级</label>
+            <select id="al-goal-level">
+              <option value="1">🏆 人生目标</option>
+              <option value="2">📅 阶段目标</option>
+              <option value="3" selected>📆 年度目标</option>
+              <option value="4">⚡ 短期目标</option>
             </select>
           </div>
-          <div class="form-group">
-            <label for="goal-parent">父目标（可选）</label>
-            <select id="goal-parent">
-              <option value="">-- 无 --</option>
-              ${this.plugin.getGoalManager().getAllGoals().map(g => 
-                `<option value="${g['A-id']}">${g['A-title']}</option>`
-              ).join('')}
-            </select>
+          <div class="al-form-item">
+            <label>截止日期</label>
+            <input type="date" id="al-goal-due">
           </div>
-          <div class="form-group">
-            <label for="goal-due">截止日期（可选）</label>
-            <input type="date" id="goal-due">
-          </div>
-          <div class="form-actions">
-            <button type="button" class="dashboard-btn" id="cancel-goal">取消</button>
-            <button type="submit" class="dashboard-btn primary">创建</button>
+          <div class="al-form-actions">
+            <button type="button" id="al-cancel-goal">取消</button>
+            <button type="submit" class="mod-cta">创建</button>
           </div>
         </form>
       </div>
     `;
+    document.body.appendChild(modal);
     
-    // Bind modal events
-    modal.querySelector('.modal-backdrop')?.addEventListener('click', () => modal.remove());
-    modal.querySelector('.modal-close')?.addEventListener('click', () => modal.remove());
-    modal.querySelector('#cancel-goal')?.addEventListener('click', () => modal.remove());
+    const close = () => modal.remove();
+    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
+    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
+    modal.querySelector('#al-cancel-goal')?.addEventListener('click', close);
     
-    modal.querySelector('#create-goal-form')?.addEventListener('submit', async (e) => {
+    modal.querySelector('#al-goal-form')?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const title = (modal.querySelector('#goal-title') as HTMLInputElement).value;
-      const level = Number((modal.querySelector('#goal-level') as HTMLSelectElement).value) as GoalLevel;
-      const parent = (modal.querySelector('#goal-parent') as HTMLSelectElement).value || null;
-      const due = (modal.querySelector('#goal-due') as HTMLInputElement).value || null;
+      const title = (modal.querySelector('#al-goal-title') as HTMLInputElement).value.trim();
+      const level = Number((modal.querySelector('#al-goal-level') as HTMLSelectElement).value) as GoalLevel;
+      const due = (modal.querySelector('#al-goal-due') as HTMLInputElement).value || null;
       
-      await this.plugin.getGoalManager().createGoal({ title, level, parent, due });
-      new Notice('目标创建成功！');
-      modal.remove();
-      await this.render();
+      if (!title) {
+        new Notice('请输入目标名称');
+        return;
+      }
+      
+      try {
+        await this.plugin.getGoalManager().createGoal({ title, level, due });
+        new Notice('目标创建成功！');
+        close();
+        this.loadAndRender();
+      } catch (error) {
+        new Notice('创建失败: ' + (error as Error).message);
+      }
     });
   }
   
-  private async showCreateTaskModal(): Promise<void> {
-    const modal = this.containerEl.createDiv('create-modal');
+  private showCreateTaskModal(): void {
+    const modal = document.createElement('div');
+    modal.className = 'al-modal';
     modal.innerHTML = `
-      <div class="modal-backdrop"></div>
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>创建任务</h2>
-          <button class="modal-close">&times;</button>
+      <div class="al-modal-bg"></div>
+      <div class="al-modal-box">
+        <div class="al-modal-header">
+          <span>📋 创建任务</span>
+          <button class="al-modal-close">×</button>
         </div>
-        <form class="modal-form" id="create-task-form">
-          <div class="form-group">
-            <label for="task-title">任务名称</label>
-            <input type="text" id="task-title" required placeholder="输入任务名称...">
+        <form id="al-task-form">
+          <div class="al-form-item">
+            <label>任务名称</label>
+            <input type="text" id="al-task-title" required placeholder="例如：完成项目报告">
           </div>
-          <div class="form-group">
-            <label for="task-goal">关联目标（可选）</label>
-            <select id="task-goal">
-              <option value="">-- 无 --</option>
-              ${this.plugin.getGoalManager().getAllGoals().map(g => 
-                `<option value="${g['A-id']}">${g['A-title']}</option>`
-              ).join('')}
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="task-priority">优先级</label>
-            <select id="task-priority">
+          <div class="al-form-item">
+            <label>优先级</label>
+            <select id="al-task-priority">
               <option value="1">🔴 最高</option>
               <option value="2">🟠 高</option>
               <option value="3" selected>🟡 中</option>
@@ -355,291 +373,327 @@ export class DashboardView extends ItemView {
               <option value="5">⚪ 最低</option>
             </select>
           </div>
-          <div class="form-group">
-            <label for="task-due">截止日期（可选）</label>
-            <input type="date" id="task-due">
+          <div class="al-form-item">
+            <label>截止日期</label>
+            <input type="date" id="al-task-due" value="${new Date().toISOString().split('T')[0]}">
           </div>
-          <div class="form-actions">
-            <button type="button" class="dashboard-btn" id="cancel-task">取消</button>
-            <button type="submit" class="dashboard-btn primary">创建</button>
+          <div class="al-form-actions">
+            <button type="button" id="al-cancel-task">取消</button>
+            <button type="submit" class="mod-cta">创建</button>
           </div>
         </form>
       </div>
     `;
+    document.body.appendChild(modal);
     
-    // Bind modal events
-    modal.querySelector('.modal-backdrop')?.addEventListener('click', () => modal.remove());
-    modal.querySelector('.modal-close')?.addEventListener('click', () => modal.remove());
-    modal.querySelector('#cancel-task')?.addEventListener('click', () => modal.remove());
+    const close = () => modal.remove();
+    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
+    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
+    modal.querySelector('#al-cancel-task')?.addEventListener('click', close);
     
-    modal.querySelector('#create-task-form')?.addEventListener('submit', async (e) => {
+    modal.querySelector('#al-task-form')?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const title = (modal.querySelector('#task-title') as HTMLInputElement).value;
-      const goal = (modal.querySelector('#task-goal') as HTMLSelectElement).value || null;
-      const priority = Number((modal.querySelector('#task-priority') as HTMLSelectElement).value) as TaskPriority;
-      const due = (modal.querySelector('#task-due') as HTMLInputElement).value || null;
+      const title = (modal.querySelector('#al-task-title') as HTMLInputElement).value.trim();
+      const priority = Number((modal.querySelector('#al-task-priority') as HTMLSelectElement).value) as TaskPriority;
+      const due = (modal.querySelector('#al-task-due') as HTMLInputElement).value || null;
       
-      await this.plugin.getTaskManager().createTask({ title, goal, priority, due });
-      new Notice('任务创建成功！');
-      modal.remove();
-      await this.render();
+      if (!title) {
+        new Notice('请输入任务名称');
+        return;
+      }
+      
+      try {
+        await this.plugin.getTaskManager().createTask({ title, priority, due });
+        new Notice('任务创建成功！');
+        close();
+        this.loadAndRender();
+      } catch (error) {
+        new Notice('创建失败: ' + (error as Error).message);
+      }
     });
   }
   
-  private async toggleTaskStatus(taskId: string): Promise<void> {
-    const task = this.plugin.getTaskManager().getTask(taskId);
-    if (!task) return;
-    
-    if (task['A-status'] === 'completed') {
-      await this.plugin.getTaskManager().updateTask(taskId, { status: 'pending' });
-    } else {
-      await this.plugin.getTaskManager().completeTask(taskId);
-    }
-    
-    await this.render();
-  }
-  
   private async openTodayNote(): Promise<void> {
-    const today = this.plugin.getNoteManager().getToday();
-    const notePath = this.plugin.getSettings().dailyPath + '/' + today + '.md';
-    
-    const file = this.app.vault.getAbstractFileByPath(notePath);
-    if (file && file instanceof TFile) {
-      await this.app.workspace.getLeaf(true).openFile(file);
-    } else {
-      new Notice('今日日记不存在');
+    try {
+      await this.plugin.getNoteManager().getOrCreateTodayNote();
+      new Notice('今日日记已打开');
+    } catch (error) {
+      new Notice('打开日记失败');
     }
   }
   
   private async openWeeklyNote(): Promise<void> {
-    const weekKey = this.plugin.getNoteManager().getCurrentWeekKey();
-    const notePath = this.plugin.getSettings().weeklyPath + '/' + weekKey + '.md';
-    
-    const file = this.app.vault.getAbstractFileByPath(notePath);
-    if (file && file instanceof TFile) {
-      await this.app.workspace.getLeaf(true).openFile(file);
-    } else {
-      new Notice('周记不存在');
+    try {
+      const weekKey = this.plugin.getNoteManager().getCurrentWeekKey();
+      await this.plugin.getNoteManager().getOrCreateWeeklyNote(weekKey);
+      new Notice('本周周记已打开');
+    } catch (error) {
+      new Notice('打开周记失败');
     }
   }
   
   private async openMonthlyNote(): Promise<void> {
-    const yearMonth = this.plugin.getNoteManager().getCurrentYearMonth();
-    const notePath = this.plugin.getSettings().monthlyPath + '/' + yearMonth + '.md';
-    
-    const file = this.app.vault.getAbstractFileByPath(notePath);
-    if (file && file instanceof TFile) {
-      await this.app.workspace.getLeaf(true).openFile(file);
-    } else {
-      new Notice('月记不存在');
+    try {
+      const yearMonth = this.plugin.getNoteManager().getCurrentYearMonth();
+      await this.plugin.getNoteManager().getOrCreateMonthlyNote(yearMonth);
+      new Notice('本月月记已打开');
+    } catch (error) {
+      new Notice('打开月记失败');
     }
   }
   
-  async refresh(): Promise<void> {
-    await this.plugin.getGoalManager().loadGoals();
-    await this.plugin.getTaskManager().loadTasks();
-    await this.render();
-    new Notice('数据已刷新');
+  private removeStyles(): void {
+    const oldStyle = document.getElementById('al-dashboard-styles');
+    if (oldStyle) oldStyle.remove();
   }
   
   private addStyles(): void {
-    // Check if styles already added
-    if (document.getElementById('amazing-life-dashboard-styles')) return;
+    this.removeStyles();
     
     const style = document.createElement('style');
-    style.id = 'amazing-life-dashboard-styles';
+    style.id = 'al-dashboard-styles';
     style.textContent = `
-      .dashboard-header {
+      .al-dashboard {
+        padding: 0;
+        min-height: 100vh;
+      }
+      
+      .al-page {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+      }
+      
+      .al-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 20px;
+        padding: 16px 24px;
+        background: var(--background-secondary);
         border-bottom: 1px solid var(--border-color);
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        border-radius: 8px 8px 0 0;
-        margin: -12px -12px 12px -12px;
+        flex-shrink: 0;
       }
       
-      .dashboard-title h1 {
-        margin: 0;
-        font-size: 24px;
+      .al-header-left {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
       }
       
-      .dashboard-subtitle {
-        margin: 4px 0 0;
-        opacity: 0.9;
-        font-size: 14px;
+      .al-title {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 18px;
+        font-weight: 600;
+        color: var(--text-primary);
       }
       
-      .dashboard-actions {
+      .al-date {
+        font-size: 12px;
+        color: var(--text-secondary);
+      }
+      
+      .al-header-actions {
         display: flex;
         gap: 8px;
       }
       
-      .dashboard-btn {
-        padding: 8px 16px;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        font-size: 14px;
-        transition: all 0.2s;
-        background: rgba(255,255,255,0.2);
-        color: white;
+      .al-header-actions button {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
       }
       
-      .dashboard-btn:hover {
-        background: rgba(255,255,255,0.3);
+      .al-body {
+        display: flex;
+        flex: 1;
+        overflow: hidden;
       }
       
-      .dashboard-btn.primary {
-        background: white;
-        color: #667eea;
-      }
-      
-      .dashboard-btn.primary:hover {
-        background: #f0f0f0;
-      }
-      
-      .dashboard-btn.small {
-        padding: 4px 12px;
-        font-size: 12px;
-      }
-      
-      .dashboard-stats {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-        gap: 12px;
-        margin-bottom: 20px;
-      }
-      
-      .stat-card {
-        background: var(--background-secondary);
+      .al-main {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
         padding: 16px;
-        border-radius: 8px;
-        text-align: center;
+        gap: 16px;
+        overflow-y: auto;
+      }
+      
+      .al-sidebar {
+        width: 320px;
+        padding: 16px;
+        border-left: 1px solid var(--border-color);
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        overflow-y: auto;
+        flex-shrink: 0;
+      }
+      
+      .al-stats {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 12px;
+      }
+      
+      .al-stat {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 16px;
+        background: var(--background-secondary);
+        border-radius: 10px;
         border: 1px solid var(--border-color);
       }
       
-      .stat-card.warning {
-        border-color: #ef4444;
-        background: #fef2f2;
+      .al-stat-warning {
+        border-color: var(--text-red);
+        background: color-mix(in srgb, var(--text-red) 5%, var(--background-secondary));
       }
       
-      .stat-card.success {
-        border-color: #22c55e;
-        background: #f0fdf4;
-      }
-      
-      .stat-card.highlight {
-        border-color: #667eea;
-        background: #eef2ff;
-      }
-      
-      .stat-value {
+      .al-stat-num {
         font-size: 32px;
-        font-weight: bold;
+        font-weight: 700;
         color: var(--text-primary);
+        line-height: 1;
       }
       
-      .stat-label {
+      .al-stat-label {
         font-size: 12px;
         color: var(--text-secondary);
         margin-top: 4px;
       }
       
-      .dashboard-main {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 20px;
-        margin-bottom: 20px;
+      .al-panel {
+        background: var(--background-secondary);
+        border-radius: 10px;
+        border: 1px solid var(--border-color);
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
       }
       
-      @media (max-width: 800px) {
-        .dashboard-main {
-          grid-template-columns: 1fr;
-        }
+      .al-panel-overdue {
+        border-color: var(--text-red);
+        background: color-mix(in srgb, var(--text-red) 3%, var(--background-secondary));
       }
       
-      .section-header {
+      .al-panel-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--border-color);
+        background: var(--background-primary);
+      }
+      
+      .al-panel-header span:first-child {
+        font-size: 16px;
+      }
+      
+      .al-panel-header span:nth-child(2) {
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--text-primary);
+      }
+      
+      .al-panel-count {
+        margin-left: auto;
+        font-size: 12px;
+        padding: 2px 8px;
+        background: var(--background-secondary);
+        color: var(--text-secondary);
+        border-radius: 10px;
+      }
+      
+      .al-count-overdue {
+        background: color-mix(in srgb, var(--text-red) 15%, transparent);
+        color: var(--text-red);
+      }
+      
+      .al-panel-body {
+        padding: 8px;
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-height: 100px;
+      }
+      
+      .al-empty {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 32px;
+        gap: 8px;
+        color: var(--text-secondary);
+      }
+      
+      .al-empty span {
+        font-size: 40px;
+        opacity: 0.5;
+      }
+      
+      .al-empty-desc {
+        font-size: 12px;
+        color: var(--text-muted);
+      }
+      
+      .al-goal {
+        padding: 12px;
+        background: var(--background-primary);
+        border-radius: 8px;
+        border: 1px solid var(--border-color);
+      }
+      
+      .al-goal-top {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 12px;
+        margin-bottom: 6px;
       }
       
-      .section-header h2 {
-        margin: 0;
-        font-size: 18px;
-      }
-      
-      .section-header.warning h2 {
-        color: #ef4444;
-      }
-      
-      .goals-list, .tasks-list {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-      
-      .goal-card {
-        background: var(--background-secondary);
-        padding: 12px;
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-        cursor: pointer;
-        transition: all 0.2s;
-      }
-      
-      .goal-card:hover {
-        border-color: #667eea;
-        transform: translateY(-2px);
-      }
-      
-      .goal-header {
-        display: flex;
-        justify-content: space-between;
-        margin-bottom: 8px;
-      }
-      
-      .goal-level-badge {
-        padding: 2px 8px;
-        border-radius: 4px;
+      .al-goal-level {
         font-size: 11px;
+        padding: 2px 6px;
+        border-radius: 4px;
         background: var(--interactive-accent);
         color: white;
       }
       
-      .goal-level-badge.level-1 { background: #8b5cf6; }
-      .goal-level-badge.level-2 { background: #7c3aed; }
-      .goal-level-badge.level-3 { background: #6d28d9; }
-      .goal-level-badge.level-4 { background: #5b21b6; }
+      .al-goal-level[data-level="1"] { background: var(--text-purple); }
+      .al-goal-level[data-level="2"] { background: var(--text-blue); }
+      .al-goal-level[data-level="3"] { background: var(--interactive-accent); }
+      .al-goal-level[data-level="4"] { background: var(--text-green); }
       
-      .goal-status {
-        font-size: 11px;
+      .al-goal-status {
+        font-size: 10px;
         padding: 2px 6px;
         border-radius: 4px;
-        background: #22c55e;
+        background: var(--text-green);
         color: white;
       }
       
-      .goal-status.completed {
-        background: #6b7280;
+      .al-goal-status.completed {
+        background: var(--text-muted);
       }
       
-      .goal-title {
-        margin: 0 0 8px;
+      .al-goal-title {
         font-size: 14px;
+        font-weight: 500;
+        color: var(--text-primary);
+        margin-bottom: 8px;
       }
       
-      .goal-progress {
+      .al-goal-progress {
         display: flex;
         align-items: center;
         gap: 8px;
       }
       
-      .progress-bar {
+      .al-progress-bar {
         flex: 1;
         height: 6px;
         background: var(--background-modifier-border);
@@ -647,170 +701,95 @@ export class DashboardView extends ItemView {
         overflow: hidden;
       }
       
-      .progress-fill {
+      .al-progress-fill {
         height: 100%;
-        background: linear-gradient(90deg, #667eea, #764ba2);
+        background: var(--interactive-accent);
         border-radius: 3px;
-        transition: width 0.3s ease;
+        transition: width 0.3s;
       }
       
-      .progress-text {
-        font-size: 12px;
-        color: var(--text-secondary);
-        min-width: 35px;
-      }
-      
-      .goal-children {
-        margin-top: 8px;
-        font-size: 11px;
-        color: var(--text-secondary);
-      }
-      
-      .task-item {
+      .al-task {
         display: flex;
-        align-items: center;
-        gap: 12px;
+        align-items: flex-start;
+        gap: 10px;
         padding: 10px 12px;
-        background: var(--background-secondary);
-        border-radius: 6px;
+        background: var(--background-primary);
+        border-radius: 8px;
         border: 1px solid var(--border-color);
         cursor: pointer;
-        transition: all 0.2s;
+        transition: background 0.15s;
       }
       
-      .task-item:hover {
-        border-color: #667eea;
+      .al-task:hover {
+        background: var(--background-modifier-hover);
       }
       
-      .task-item.overdue {
-        border-color: #ef4444;
-        background: #fef2f2;
-      }
-      
-      .task-checkbox {
-        width: 22px;
-        height: 22px;
+      .al-task-check {
+        width: 18px;
+        height: 18px;
         border: 2px solid var(--border-color);
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 12px;
+        font-size: 10px;
         color: white;
-        transition: all 0.2s;
         flex-shrink: 0;
+        margin-top: 1px;
       }
       
-      .task-checkbox.checked {
-        background: #22c55e;
-        border-color: #22c55e;
+      .al-task-check.checked {
+        background: var(--text-green);
+        border-color: var(--text-green);
       }
       
-      .task-content {
+      .al-task-content {
         flex: 1;
         min-width: 0;
       }
       
-      .task-title {
-        display: block;
-        font-size: 14px;
+      .al-task-title {
+        font-size: 13px;
+        color: var(--text-primary);
         margin-bottom: 4px;
       }
       
-      .task-title.completed {
+      .al-task-title.done {
         text-decoration: line-through;
-        color: var(--text-secondary);
+        color: var(--text-muted);
       }
       
-      .task-meta {
+      .al-task-meta {
         display: flex;
-        gap: 8px;
+        align-items: center;
+        gap: 10px;
         font-size: 11px;
-      }
-      
-      .task-priority {
-        padding: 1px 6px;
-        border-radius: 3px;
-      }
-      
-      .priority-high {
-        background: #fee2e2;
-        color: #dc2626;
-      }
-      
-      .priority-medium {
-        background: #fef3c7;
-        color: #d97706;
-      }
-      
-      .priority-low {
-        background: #dcfce7;
-        color: #16a34a;
-      }
-      
-      .task-due {
         color: var(--text-secondary);
       }
       
-      .dashboard-overdue {
-        background: #fef2f2;
-        padding: 16px;
-        border-radius: 8px;
-        margin-bottom: 20px;
-        border: 1px solid #fecaca;
+      .al-task-due {
+        color: var(--text-red);
       }
       
-      .dashboard-quick-actions {
-        background: var(--background-secondary);
-        padding: 16px;
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-      }
-      
-      .quick-actions-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-        gap: 12px;
-        margin-top: 12px;
-      }
-      
-      .quick-action-btn {
+      .al-quick-btn {
         display: flex;
-        flex-direction: column;
         align-items: center;
         gap: 8px;
-        padding: 16px;
-        background: var(--background-primary);
-        border: 1px solid var(--border-color);
-        border-radius: 8px;
-        cursor: pointer;
-        transition: all 0.2s;
+        padding: 10px 12px;
+        width: 100%;
+        text-align: left;
       }
       
-      .quick-action-btn:hover {
-        border-color: #667eea;
-        transform: translateY(-2px);
+      .al-quick-btn span:first-child {
+        font-size: 18px;
       }
       
-      .quick-action-icon {
-        font-size: 24px;
-      }
-      
-      .quick-action-btn span:last-child {
-        font-size: 12px;
+      .al-quick-btn span:last-child {
+        font-size: 13px;
         color: var(--text-secondary);
       }
       
-      .empty-state {
-        text-align: center;
-        padding: 24px;
-        color: var(--text-secondary);
-        background: var(--background-secondary);
-        border-radius: 8px;
-      }
-      
-      /* Modal Styles */
-      .create-modal {
+      .al-modal {
         position: fixed;
         top: 0;
         left: 0;
@@ -822,82 +801,214 @@ export class DashboardView extends ItemView {
         justify-content: center;
       }
       
-      .modal-backdrop {
+      .al-modal-bg {
         position: absolute;
         top: 0;
         left: 0;
         right: 0;
         bottom: 0;
-        background: rgba(0,0,0,0.5);
+        background: rgba(0, 0, 0, 0.5);
       }
       
-      .modal-content {
+      .al-modal-box {
         position: relative;
         background: var(--background-primary);
         border-radius: 12px;
-        padding: 24px;
         width: 90%;
-        max-width: 400px;
-        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        max-width: 420px;
+        border: 1px solid var(--border-color);
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        overflow: hidden;
       }
       
-      .modal-header {
+      .al-modal-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        margin-bottom: 20px;
+        padding: 16px 20px;
+        border-bottom: 1px solid var(--border-color);
+        font-size: 16px;
+        font-weight: 600;
+        color: var(--text-primary);
       }
       
-      .modal-header h2 {
-        margin: 0;
-        font-size: 20px;
-      }
-      
-      .modal-close {
+      .al-modal-close {
         background: none;
         border: none;
         font-size: 24px;
         cursor: pointer;
         color: var(--text-secondary);
+        line-height: 1;
       }
       
-      .modal-close:hover {
-        color: var(--text-primary);
+      #al-goal-form, #al-task-form {
+        padding: 20px;
       }
       
-      .modal-form .form-group {
+      .al-form-item {
         margin-bottom: 16px;
       }
       
-      .modal-form label {
+      .al-form-item label {
         display: block;
         margin-bottom: 6px;
         font-size: 13px;
         font-weight: 500;
+        color: var(--text-secondary);
       }
       
-      .modal-form input,
-      .modal-form select {
+      .al-form-item input,
+      .al-form-item select {
         width: 100%;
         padding: 10px 12px;
         border: 1px solid var(--border-color);
-        border-radius: 6px;
+        border-radius: 8px;
         font-size: 14px;
-        background: var(--background-primary);
+        background: var(--background-secondary);
         color: var(--text-primary);
+        box-sizing: border-box;
       }
       
-      .modal-form input:focus,
-      .modal-form select:focus {
-        outline: none;
-        border-color: #667eea;
-      }
-      
-      .form-actions {
+      .al-form-actions {
         display: flex;
         justify-content: flex-end;
-        gap: 8px;
+        gap: 10px;
         margin-top: 24px;
+      }
+      
+      @media (max-width: 1000px) {
+        .al-stats {
+          grid-template-columns: repeat(2, 1fr);
+        }
+        
+        .al-sidebar {
+          width: 280px;
+        }
+      }
+      
+      @media (max-width: 800px) {
+        .al-body {
+          flex-direction: column;
+        }
+        
+        .al-sidebar {
+          width: 100%;
+          border-left: none;
+          border-top: 1px solid var(--border-color);
+          padding: 16px;
+        }
+        
+        .al-header-actions {
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+        
+        .al-header-actions button {
+          min-width: 80px;
+        }
+      }
+      
+      @media (max-width: 640px) {
+        .al-header {
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 12px;
+          padding: 12px 16px;
+        }
+        
+        .al-header-actions {
+          width: 100%;
+          justify-content: stretch;
+        }
+        
+        .al-header-actions button {
+          flex: 1;
+          min-width: 0;
+          justify-content: center;
+          gap: 4px;
+        }
+        
+        .al-header-actions button span:last-child {
+          font-size: 11px;
+        }
+        
+        .al-main {
+          padding: 12px;
+          gap: 12px;
+        }
+        
+        .al-stats {
+          grid-template-columns: repeat(2, 1fr);
+          gap: 8px;
+        }
+        
+        .al-stat {
+          padding: 12px;
+        }
+        
+        .al-stat-num {
+          font-size: 24px;
+        }
+        
+        .al-stat-label {
+          font-size: 11px;
+        }
+        
+        .al-panel-body {
+          padding: 6px;
+        }
+        
+        .al-task, .al-goal {
+          padding: 10px;
+        }
+        
+        .al-task-meta {
+          flex-wrap: wrap;
+          gap: 6px;
+        }
+      }
+      
+      @media (max-width: 480px) {
+        .al-stats {
+          grid-template-columns: repeat(2, 1fr);
+          gap: 6px;
+        }
+        
+        .al-stat {
+          padding: 10px;
+        }
+        
+        .al-stat-num {
+          font-size: 20px;
+        }
+        
+        .al-stat-label {
+          font-size: 10px;
+        }
+        
+        .al-title {
+          font-size: 16px;
+        }
+        
+        .al-date {
+          font-size: 11px;
+        }
+        
+        .al-header-actions button span:first-child {
+          font-size: 14px;
+        }
+        
+        .al-header-actions button span:last-child {
+          font-size: 10px;
+        }
+        
+        .al-panel-header {
+          padding: 10px 12px;
+        }
+        
+        .al-panel-header span:nth-child(2) {
+          font-size: 13px;
+        }
       }
     `;
     document.head.appendChild(style);
