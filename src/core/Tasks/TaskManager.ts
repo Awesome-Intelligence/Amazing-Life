@@ -22,6 +22,7 @@ export interface UpdateTaskDTO {
   priority?: TaskPriority;
   due?: string | null;
   tags?: string[];
+  goal?: string | null;
 }
 
 export class TaskManager {
@@ -196,6 +197,10 @@ export class TaskManager {
           task['A-completed'] = null;
         }
       }
+    }
+    
+    if (dto.goal !== undefined) {
+      task['A-goal'] = dto.goal;
     }
     
     const content = await this.storage.readFile(this.storage.getTaskPath(id));

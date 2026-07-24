@@ -10,7 +10,7 @@ export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
 
 export type ViewType = 'dashboard' | 'list' | 'board' | 'gallery' | 'goal-detail' | 'task-detail';
 export type CalendarViewMode = 'day' | 'week' | 'month' | 'year';
-export type BoardGroupBy = 'goal' | 'priority' | 'status';
+export type BoardGroupBy = 'level' | 'goalStatus';
 
 export class DashboardView extends ItemView {
   private plugin: AmazingLife;
@@ -23,7 +23,12 @@ export class DashboardView extends ItemView {
   private selectedMonth: string | null = null;
   private selectedYear: string | null = null;
   private selectedDay: string | null = null;
-  private boardGroupBy: BoardGroupBy = 'goal';
+  private boardGroupBy: BoardGroupBy = 'level';
+  // 拖拽相关
+  private draggingGoalId: string | null = null;
+  private draggingGoalEl: HTMLElement | null = null;
+  private dragGhost: HTMLElement | null = null;
+  private dropTargetColumn: string | null = null;
   
   constructor(leaf: any, plugin: AmazingLife) {
     super(leaf);
@@ -131,7 +136,7 @@ export class DashboardView extends ItemView {
     switch (this.currentView) {
       case 'goal-detail': return this.selectedGoalId ? this.renderGoalDetailView(this.selectedGoalId) : this.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
       case 'task-detail': return this.selectedTaskId ? this.renderTaskDetailView(this.selectedTaskId) : this.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
-      case 'list': return this.renderListView(allTasks);
+      case 'list': return this.renderListView(allGoals, allTasks);
       case 'board': return this.renderBoardView(allGoals, allTasks);
       case 'gallery': return this.renderGalleryView(allGoals, allTasks);
       default: return this.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
@@ -321,33 +326,37 @@ export class DashboardView extends ItemView {
     `;
   }
   
-  private renderListView(allTasks: Task[]): string {
-    const priorityNames = ['最高', '高', '中', '低', '最低'];
-    const priorityColors = ['var(--text-red)', 'var(--text-orange)', 'var(--text-yellow)', 'var(--text-green)', 'var(--text-muted)'];
+  private renderListView(allGoals: Goal[], allTasks: Task[]): string {
+    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
     const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
-    const statusNames: Record<string, string> = { 'pending': '待办', 'in-progress': '进行中', 'completed': '已完成', 'cancelled': '已取消' };
-    const fields = this.getTaskFields();
-    if (allTasks.length === 0) return `<div class="al-table-view"><div class="al-table-empty">${this.renderEmpty('📋', '暂无任务', '先创建目标，再添加任务')}</div></div>`;
+    const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
+    
+    if (allGoals.length === 0) return `<div class="al-table-view"><div class="al-table-empty">${this.renderEmpty('🎯', '暂无目标', '先创建目标')}</div></div>`;
     
     // 构建表头
-    let headerHtml = '<th style="width:40px"></th>';
-    if (fields.includes('title')) headerHtml += '<th>任务名称</th>';
-    if (fields.includes('goal')) headerHtml += '<th style="width:120px">关联目标</th>';
-    if (fields.includes('priority')) headerHtml += '<th style="width:80px">优先级</th>';
-    if (fields.includes('status')) headerHtml += '<th style="width:100px">状态</th>';
-    if (fields.includes('due')) headerHtml += '<th style="width:120px">截止日期</th>';
+    const headerHtml = `
+      <th style="width:40px"></th>
+      <th>目标名称</th>
+      <th style="width:100px">层级</th>
+      <th style="width:100px">状态</th>
+      <th style="width:80px">进度</th>
+      <th style="width:120px">截止日期</th>
+    `;
     
     // 构建表格行
-    const rowsHtml = allTasks.map(task => {
-      const goalLevel = this.getGoalLevel(task['A-goal']);
-      let rowHtml = `<tr class="al-table-row ${task['A-status']==='completed'?'completed':''}" data-task-id="${task['A-id']}"><td><div class="al-task-check ${task['A-status']==='completed'?'checked':''}" data-task-id="${task['A-id']}">${task['A-status']==='completed'?'✓':''}</div></td>`;
-      if (fields.includes('title')) rowHtml += `<td class="al-table-title">${task['A-title']}</td>`;
-      if (fields.includes('goal')) rowHtml += `<td><span class="al-goal-tag" style="color:${levelColors[goalLevel]||'var(--text-muted)'}" data-goal-id="${task['A-goal']}">${this.getGoalTitle(task['A-goal'])}</span></td>`;
-      if (fields.includes('priority')) rowHtml += `<td><span style="color:${priorityColors[task['A-priority']-1]}">${priorityNames[task['A-priority']-1]}</span></td>`;
-      if (fields.includes('status')) rowHtml += `<td><span class="al-status-badge status-${task['A-status']}">${statusNames[task['A-status']]}</span></td>`;
-      if (fields.includes('due')) rowHtml += `<td>${task['A-due']||'-'}</td>`;
-      rowHtml += '</tr>';
-      return rowHtml;
+    const rowsHtml = allGoals.map(goal => {
+      const tasks = allTasks.filter(t => t['A-goal'] === goal['A-id']);
+      const completedCount = tasks.filter(t => t['A-status'] === 'completed').length;
+      return `
+        <tr class="al-table-row" data-goal-id="${goal['A-id']}">
+          <td><span class="al-level-dot" style="background:${levelColors[goal['A-level']]}"></span></td>
+          <td class="al-table-title">${goal['A-title']}</td>
+          <td><span class="al-goal-level" data-level="${goal['A-level']}" style="background:${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span></td>
+          <td><span class="al-status-badge status-${goal['A-status']}">${statusNames[goal['A-status']]}</span></td>
+          <td><span class="al-progress-text">${goal['A-progress']}%</span></td>
+          <td>${goal['A-due'] || '-'}</td>
+        </tr>
+      `;
     }).join('');
     
     return `<div class="al-table-view"><table class="al-table"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
@@ -355,42 +364,51 @@ export class DashboardView extends ItemView {
   
   private renderBoardView(allGoals: Goal[], allTasks: Task[]): string {
     const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
-    const priorityNames = ['最高', '高', '中', '低', '最低'];
-    const priorityColors: Record<number, string> = { 1: 'var(--text-red)', 2: 'var(--text-orange)', 3: 'var(--text-yellow)', 4: 'var(--text-green)', 5: 'var(--text-muted)' };
-    const statusNames: Record<string, string> = { 'pending': '待办', 'in-progress': '进行中', 'completed': '已完成', 'cancelled': '已取消' };
-    const statusColors: Record<string, string> = { 'pending': 'var(--text-muted)', 'in-progress': 'var(--text-blue)', 'completed': 'var(--text-green)', 'cancelled': 'var(--text-muted)' };
+    const levelColors: Record<number, string> = { 1: '#8B5CF6', 2: '#3B82F6', 3: '#6366F1', 4: '#22C55E' };
+    const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
+    const statusColors: Record<string, string> = { 'active': 'var(--text-blue)', 'completed': 'var(--text-green)', 'abandoned': 'var(--text-muted)' };
     
     const groupByOptions = [
-      { value: 'goal', label: '按目标' },
-      { value: 'priority', label: '按优先级' },
-      { value: 'status', label: '按状态' }
+      { value: 'level', label: '按层级' },
+      { value: 'goalStatus', label: '按状态' }
     ];
     
     let columnsHtml = '';
     
-    if (this.boardGroupBy === 'goal') {
-      if (allGoals.length === 0) return `<div class="al-board-view"><div class="al-board-empty">${this.renderEmpty('📌', '暂无目标', '先创建目标来组织任务')}</div></div>`;
-      columnsHtml = allGoals.map(goal => {
-        const gt = allTasks.filter(t => t['A-goal'] === goal['A-id']);
-        return `<div class="al-board-column" style="--column-accent:${levelColors[goal['A-level']]}"><div class="al-board-column-header"><div class="al-board-column-title"><span class="al-goal-level" data-level="${goal['A-level']}" style="background:${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span><span>${goal['A-title']}</span></div><span class="al-list-count">${gt.length}</span></div><div class="al-board-column-body">${gt.length === 0 ? this.renderEmpty('📋', '暂无任务', '') : this.renderTasks(gt)}</div></div>`;
+    if (this.boardGroupBy === 'level') {
+      // 按层级分组
+      columnsHtml = [1, 2, 3, 4].map(level => {
+        const goals = allGoals.filter(g => g['A-level'] === level);
+        console.log('[AL Board] Rendering level', level, 'name:', levelNames[level], 'color:', levelColors[level], 'goals:', goals.length);
+        return `<div class="al-board-column" data-column-type="level" data-column-value="${level}">
+          <div class="al-board-column-header">
+            <div class="al-board-column-title">
+              <span class="al-level-badge" style="background:${levelColors[level]};color:#fff;font-size:14px;font-weight:700;padding:4px 12px;border-radius:6px;display:inline-block;min-width:40px;text-align:center">${levelNames[level]}</span>
+            </div>
+            <span class="al-list-count">${goals.length}</span>
+          </div>
+          <div class="al-board-column-body">
+            ${goals.length === 0 ? this.renderEmpty('🎯', '暂无目标', '') : this.renderGoalsForBoard(goals, allTasks)}
+          </div>
+        </div>`;
       }).join('');
-    } else if (this.boardGroupBy === 'priority') {
-      // 按优先级分组
-      const tasksByPriority: Record<number, Task[]> = { 1: [], 2: [], 3: [], 4: [], 5: [] };
-      allTasks.forEach(task => {
-        tasksByPriority[task['A-priority']].push(task);
-      });
-      columnsHtml = [1, 2, 3, 4, 5].map(priority => {
-        const tasks = tasksByPriority[priority];
-        return `<div class="al-board-column" style="--column-accent:${priorityColors[priority]}"><div class="al-board-column-header"><div class="al-board-column-title"><span class="al-priority-badge" style="background:${priorityColors[priority]}">${priorityNames[priority - 1]}</span></div><span class="al-list-count">${tasks.length}</span></div><div class="al-board-column-body">${tasks.length === 0 ? this.renderEmpty('📋', '暂无任务', '') : this.renderTasks(tasks)}</div></div>`;
-      }).join('');
-    } else if (this.boardGroupBy === 'status') {
-      // 按状态分组
-      const statusOrder = ['pending', 'in-progress', 'completed', 'cancelled'];
+    } else if (this.boardGroupBy === 'goalStatus') {
+      // 按目标状态分组
+      const statusOrder = ['active', 'completed', 'abandoned'];
       columnsHtml = statusOrder.map(status => {
-        const tasks = allTasks.filter(t => t['A-status'] === status);
-        return `<div class="al-board-column" style="--column-accent:${statusColors[status]}"><div class="al-board-column-header"><div class="al-board-column-title"><span class="al-status-dot" style="background:${statusColors[status]}"></span><span>${statusNames[status]}</span></div><span class="al-list-count">${tasks.length}</span></div><div class="al-board-column-body">${tasks.length === 0 ? this.renderEmpty('📋', '暂无任务', '') : this.renderTasks(tasks)}</div></div>`;
+        const goals = allGoals.filter(g => g['A-status'] === status);
+        return `<div class="al-board-column" data-column-type="goalStatus" data-column-value="${status}">
+          <div class="al-board-column-header">
+            <div class="al-board-column-title">
+              <span class="al-status-dot" style="background:${statusColors[status]}"></span>
+              <span>${statusNames[status]}</span>
+            </div>
+            <span class="al-list-count">${goals.length}</span>
+          </div>
+          <div class="al-board-column-body">
+            ${goals.length === 0 ? this.renderEmpty('🎯', '暂无目标', '') : this.renderGoalsForBoard(goals, allTasks)}
+          </div>
+        </div>`;
       }).join('');
     }
     
@@ -405,6 +423,26 @@ export class DashboardView extends ItemView {
       </div>
       <div class="al-board-view">${columnsHtml}</div>
     `;
+  }
+  
+  private renderGoalsForBoard(goals: Goal[], allTasks: Task[]): string {
+    return goals.map(goal => {
+      const tasks = allTasks.filter(t => t['A-goal'] === goal['A-id']);
+      const completedCount = tasks.filter(t => t['A-status'] === 'completed').length;
+      return `
+        <div class="al-goal-card" data-goal-id="${goal['A-id']}">
+          <div class="al-goal-card-title">${goal['A-title']}</div>
+          <div class="al-goal-card-progress">
+            <div class="al-progress-bar"><div class="al-progress-fill" style="width:${goal['A-progress']}%"></div></div>
+            <span>${goal['A-progress']}%</span>
+          </div>
+          <div class="al-goal-card-meta">
+            <span>📋 ${tasks.length} 个任务</span>
+            <span>✓ ${completedCount} 已完成</span>
+          </div>
+        </div>
+      `;
+    }).join('');
   }
   
   private renderGalleryView(allGoals: Goal[], allTasks: Task[]): string {
@@ -644,8 +682,11 @@ export class DashboardView extends ItemView {
     // Goal click events
     content.querySelectorAll('.al-goal, .al-gallery-goal').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.selectedGoalId = goalId; this.currentView = 'goal-detail'; this.render(); } }); });
     
-    // Task click events
-    content.querySelectorAll('.al-task, .al-detail-task').forEach(el => { el.addEventListener('click', (e) => { const taskId = (e.currentTarget as HTMLElement).getAttribute('data-task-id'); if (taskId) { this.selectedTaskId = taskId; this.currentView = 'task-detail'; this.render(); } }); });
+    // Task click events (in detail views)
+    content.querySelectorAll('.al-detail-task').forEach(el => { el.addEventListener('click', (e) => { const taskId = (e.currentTarget as HTMLElement).getAttribute('data-task-id'); if (taskId) { this.selectedTaskId = taskId; this.currentView = 'task-detail'; this.render(); } }); });
+    
+    // Goal row click in list view
+    content.querySelectorAll('.al-table-row[data-goal-id]').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.selectedGoalId = goalId; this.currentView = 'goal-detail'; this.render(); } }); });
     
     // Goal tag click in list view
     content.querySelectorAll('.al-goal-tag').forEach(el => { el.addEventListener('click', (e) => { e.stopPropagation(); const goalId = (e.target as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.selectedGoalId = goalId; this.currentView = 'goal-detail'; this.render(); } }); });
@@ -678,6 +719,117 @@ export class DashboardView extends ItemView {
     
     // Field settings button
     content.querySelector('#al-open-field-settings')?.addEventListener('click', () => this.showFieldSettingsModal());
+    
+    // Board drag and drop
+    this.bindBoardDragEvents(content);
+  }
+  
+  private bindBoardDragEvents(content: HTMLElement): void {
+    // 拖拽目标卡片
+    content.querySelectorAll('.al-board-view .al-goal-card').forEach(cardEl => {
+      cardEl.addEventListener('mousedown', (e) => {
+        const goalId = (cardEl as HTMLElement).getAttribute('data-goal-id');
+        if (!goalId) return;
+        
+        this.startGoalDrag(cardEl as HTMLElement, goalId, e as MouseEvent);
+      });
+    });
+    
+    // 列的放置区域
+    content.querySelectorAll('.al-board-column').forEach(columnEl => {
+      columnEl.addEventListener('mouseenter', () => {
+        if (this.draggingGoalId) {
+          this.dropTargetColumn = (columnEl as HTMLElement).getAttribute('data-column-value');
+          columnEl.classList.add('drop-target');
+        }
+      });
+      
+      columnEl.addEventListener('mouseleave', () => {
+        columnEl.classList.remove('drop-target');
+        if (this.dropTargetColumn === (columnEl as HTMLElement).getAttribute('data-column-value')) {
+          this.dropTargetColumn = null;
+        }
+      });
+    });
+    
+    // 鼠标移动
+    document.addEventListener('mousemove', (e: MouseEvent) => {
+      if (this.dragGhost) {
+        this.dragGhost.style.left = e.clientX + 'px';
+        this.dragGhost.style.top = e.clientY + 'px';
+      }
+    });
+    
+    // 鼠标释放
+    document.addEventListener('mouseup', () => {
+      if (this.draggingGoalId && this.dropTargetColumn) {
+        this.handleGoalDrop();
+      }
+      this.endGoalDrag();
+    });
+  }
+  
+  private startGoalDrag(cardEl: HTMLElement, goalId: string, e: MouseEvent): void {
+    this.draggingGoalId = goalId;
+    this.draggingGoalEl = cardEl;
+    
+    // 创建拖拽影子
+    const rect = cardEl.getBoundingClientRect();
+    this.dragGhost = cardEl.cloneNode(true) as HTMLElement;
+    this.dragGhost.classList.add('drag-ghost');
+    this.dragGhost.style.width = rect.width + 'px';
+    this.dragGhost.style.left = e.clientX + 'px';
+    this.dragGhost.style.top = e.clientY + 'px';
+    document.body.appendChild(this.dragGhost);
+    
+    // 隐藏原卡片
+    cardEl.classList.add('dragging');
+  }
+  
+  private endGoalDrag(): void {
+    if (this.dragGhost) {
+      this.dragGhost.remove();
+      this.dragGhost = null;
+    }
+    if (this.draggingGoalEl) {
+      this.draggingGoalEl.classList.remove('dragging');
+      this.draggingGoalEl = null;
+    }
+    this.draggingGoalId = null;
+    this.dropTargetColumn = null;
+    
+    // 移除所有列的 drop-target 类
+    document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
+  }
+  
+  private async handleGoalDrop(): Promise<void> {
+    if (!this.draggingGoalId || !this.dropTargetColumn) return;
+    
+    const goal = this.plugin.getGoalManager().getGoal(this.draggingGoalId);
+    if (!goal) return;
+    
+    const columnType = this.boardGroupBy;
+    
+    try {
+      if (columnType === 'level') {
+        // 按层级分组：拖动目标到不同层级列，更新目标层级
+        const newLevel = parseInt(this.dropTargetColumn) as GoalLevel;
+        if (goal['A-level'] !== newLevel) {
+          await this.plugin.getGoalManager().updateGoal(this.draggingGoalId, { level: newLevel });
+          new Notice('目标已移动到新层级');
+        }
+      } else if (columnType === 'goalStatus') {
+        // 按状态分组：拖动目标到不同状态列，更新目标状态
+        const newStatus = this.dropTargetColumn as 'active' | 'completed' | 'abandoned';
+        if (goal['A-status'] !== newStatus) {
+          await this.plugin.getGoalManager().updateGoal(this.draggingGoalId, { status: newStatus });
+          new Notice('目标状态已更新');
+        }
+      }
+      this.loadAndRender();
+    } catch (error) {
+      new Notice('更新失败');
+    }
   }
   
   private async toggleTaskStatus(taskId: string): Promise<void> {
@@ -938,14 +1090,14 @@ export class DashboardView extends ItemView {
     style.textContent = `
       .al-dashboard{padding:0;height:100%;display:flex;flex-direction:column;overflow:hidden}.al-page{display:flex;flex-direction:column;height:100%;overflow:hidden}.al-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border-color);flex-shrink:0}.al-header-left{display:flex;flex-direction:column;gap:2px}.al-title{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;color:var(--text-primary)}.al-date{font-size:12px;color:var(--text-secondary)}.al-header-actions{display:flex;gap:8px}.al-header-actions button{display:inline-flex;align-items:center;gap:4px}.al-view-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--background-primary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-view-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s}.al-view-tab:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-view-tab.active{background:var(--interactive-accent);color:#fff}.al-view-tab span:first-child{font-size:16px}.al-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}.al-main{padding:16px 24px;gap:16px;overflow-y:auto}.al-main-full{padding:16px 24px;gap:16px;overflow-y:auto}
       .al-detail-view{flex:1;display:flex;flex-direction:column;overflow:hidden}.al-detail-header{display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-detail-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--text-secondary);transition:all .15s}.al-detail-icon:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-detail-title{display:flex;align-items:center;gap:12px;flex:1}.al-detail-title h2{font-size:20px;font-weight:600;color:var(--text-primary);margin:0}.al-detail-status{font-size:12px;padding:4px 12px;border-radius:12px;background:var(--text-green);color:#fff}.al-detail-status.status-completed{background:var(--text-muted)}.al-detail-status.status-cancelled{background:var(--text-red)}.al-detail-status.status-pending{background:var(--background-modifier-border);color:var(--text-secondary)}.al-detail-status.status-in-progress{background:var(--text-blue);color:#fff}.al-detail-content{flex:1;display:flex;overflow:hidden}.al-detail-main{flex:1;padding:24px;overflow-y:auto}.al-detail-sidebar{width:300px;padding:24px;border-left:1px solid var(--border-color);background:var(--background-secondary);overflow-y:auto;flex-shrink:0}.al-detail-section{margin-bottom:24px}.al-detail-section h3{font-size:14px;font-weight:600;color:var(--text-secondary);margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-detail-info-grid{display:grid;gap:12px;margin-bottom:16px}.al-detail-info-item{display:flex;justify-content:space-between;align-items:center}.al-detail-info-label{font-size:13px;color:var(--text-secondary)}.al-detail-info-value{font-size:13px;color:var(--text-primary);font-weight:500}.al-detail-progress-row{display:flex;justify-content:space-between;align-items:center}.al-detail-progress{display:flex;align-items:center;gap:8px}.al-detail-progress .al-progress-bar{width:120px;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-detail-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-detail-stats{display:flex;gap:16px}.al-detail-stat{flex:1;display:flex;flex-direction:column;align-items:center;padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color)}.al-detail-stat-num{font-size:28px;font-weight:700;color:var(--text-primary)}.al-detail-stat-label{font-size:12px;color:var(--text-secondary);margin-top:4px}.al-detail-stat-success .al-detail-stat-num{color:var(--text-green)}.al-detail-tasks{display:flex;flex-direction:column;gap:8px}.al-detail-task{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-task:hover{border-color:var(--interactive-accent)}.al-detail-task-content{flex:1}.al-detail-task-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:4px}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary)}.al-detail-actions{display:flex;flex-direction:column;gap:8px;margin-bottom:24px}.al-detail-actions button,.al-action-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px}.al-action-btn-success{background:var(--text-green);color:#fff;border:none;border-radius:6px;cursor:pointer}.al-action-btn-danger{background:transparent;color:var(--text-red);border:1px solid var(--text-red);border-radius:6px;cursor:pointer}.al-task-actions{display:flex;flex-direction:column;gap:8px}.al-task-goal-card{padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-task-goal-card:hover{border-color:var(--interactive-accent)}.al-task-goal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-task-goal-progress{display:flex;align-items:center;gap:8px}.al-task-goal-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-task-goal-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-task-goal-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}
-      .al-table-view{flex:1;padding:16px;overflow:auto}.al-table-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-table{width:100%;border-collapse:collapse;background:var(--background-secondary);border-radius:10px;overflow:hidden}.al-table th{text-align:left;padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}.al-table td{padding:12px 16px;border-bottom:1px solid var(--border-color);font-size:13px;color:var(--text-primary)}.al-table-row:hover{background:var(--background-modifier-hover);cursor:pointer}.al-table-row.completed td{color:var(--text-muted)}.al-table-row.completed .al-table-title{text-decoration:line-through}.al-table-title{font-weight:500}.al-goal-tag{font-weight:500;font-size:12px;cursor:pointer}.al-goal-tag:hover{text-decoration:underline}.al-status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}.al-status-badge.status-pending{background:var(--background-modifier-border);color:var(--text-secondary)}.al-status-badge.status-in-progress{background:color-mix(in srgb,var(--text-blue) 20%,transparent);color:var(--text-blue)}.al-status-badge.status-completed{background:color-mix(in srgb,var(--text-green) 20%,transparent);color:var(--text-green)}.al-status-badge.status-cancelled{background:var(--background-modifier-border);color:var(--text-muted)}
-      .al-board-header{display:flex;justify-content:flex-end;padding:12px 16px 0;border-bottom:1px solid var(--border-color)}.al-board-group-selector{display:flex;align-items:center;gap:8px}.al-board-group-label{font-size:13px;color:var(--text-secondary)}.al-board-group-select{padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:13px;cursor:pointer}.al-board-group-select:hover{border-color:var(--interactive-accent)}.al-board-view{display:flex;flex-direction:row;flex:1;gap:12px;padding:16px;overflow-x:auto;min-height:0;background:var(--background-primary);align-items:stretch}.al-board-empty{display:flex;justify-content:center;align-items:center;width:100%}.al-board-column{flex:0 0 260px;display:flex;flex-direction:column;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;max-height:100%}.al-board-column-header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:2px solid var(--column-accent,var(--interactive-accent));background:var(--background-primary);flex-shrink:0}.al-board-column-title{display:flex;align-items:center;gap:8px;font-size:12px;font-weight:500;color:var(--text-primary);overflow:hidden}.al-board-column-title span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-board-column-body{flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:150px}.al-priority-badge{font-size:11px;padding:2px 8px;border-radius:4px;color:#fff;font-weight:500}.al-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+      .al-table-view{flex:1;padding:16px;overflow:auto}.al-table-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-table{width:100%;border-collapse:collapse;background:var(--background-secondary);border-radius:10px;overflow:hidden}.al-table th{text-align:left;padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}.al-table td{padding:12px 16px;border-bottom:1px solid var(--border-color);font-size:13px;color:var(--text-primary)}.al-table-row:hover{background:var(--background-modifier-hover);cursor:pointer}.al-table-row.completed td{color:var(--text-muted)}.al-table-row.completed .al-table-title{text-decoration:line-through}.al-table-title{font-weight:600}.al-goal-tag{font-weight:500;font-size:12px;cursor:pointer}.al-goal-tag:hover{text-decoration:underline}.al-status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}.al-status-badge.status-pending,.al-status-badge.status-active{background:var(--interactive-accent);color:#fff}.al-status-badge.status-in-progress{background:color-mix(in srgb,var(--text-blue) 20%,transparent);color:var(--text-blue)}.al-status-badge.status-completed{background:color-mix(in srgb,var(--text-green) 20%,transparent);color:var(--text-green)}.al-status-badge.status-abandoned,.al-status-badge.status-cancelled{background:var(--background-modifier-border);color:var(--text-muted)}.al-level-dot{width:10px;height:10px;border-radius:50%;display:inline-block}.al-progress-text{font-weight:500}
+      .al-board-header{display:flex;justify-content:flex-end;padding:12px 16px 0;border-bottom:1px solid var(--border-color)}.al-board-group-selector{display:flex;align-items:center;gap:8px}.al-board-group-label{font-size:13px;color:var(--text-secondary)}.al-board-group-select{padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:13px;cursor:pointer}.al-board-group-select:hover{border-color:var(--interactive-accent)}.al-board-view{display:flex;flex-direction:row;flex:1;gap:12px;padding:16px;overflow-x:auto;min-height:0;background:var(--background-primary);align-items:stretch}.al-board-empty{display:flex;justify-content:center;align-items:center;width:100%}.al-board-column{flex:0 0 260px;display:flex;flex-direction:column;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;max-height:100%}.al-board-column-header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:2px solid var(--column-accent,var(--interactive-accent));background:var(--background-primary);flex-shrink:0}.al-board-column-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);overflow:visible;flex-wrap:wrap;white-space:nowrap}.al-board-column-body{flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:150px}.al-level-badge{font-size:12px;padding:3px 10px;border-radius:6px;color:#fff;font-weight:600;white-space:nowrap}.al-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.al-goal-card{padding:14px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:grab;transition:all .15s;margin-bottom:8px}.al-goal-card:hover{border-color:var(--interactive-accent);box-shadow:0 2px 8px rgba(0,0,0,0.1)}.al-goal-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:10px;line-height:1.3}.al-goal-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:10px}.al-goal-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-goal-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-goal-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-goal-card-meta{display:flex;gap:12px;font-size:12px;color:var(--text-muted)}.al-goal-card.dragging{opacity:0.3;cursor:grabbing}.drag-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:0.9;transform:rotate(2deg);box-shadow:0 8px 24px rgba(0,0,0,0.2)}.al-board-column.drop-target{border:2px dashed var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 10%,transparent)}
       .al-gallery-view{flex:1;padding:16px;overflow-y:auto}.al-gallery-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-gallery-section{margin-bottom:24px}.al-gallery-section-title{font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}.al-gallery-card{position:relative;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);padding:16px;transition:all .2s;cursor:pointer}.al-gallery-card:hover{border-color:var(--interactive-accent);box-shadow:0 4px 12px rgba(0,0,0,.1);transform:translateY(-2px)}.al-gallery-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.al-gallery-card-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:12px;line-height:1.4}.al-gallery-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-gallery-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-gallery-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent);border-radius:3px}.al-gallery-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-gallery-card-meta{font-size:11px;color:var(--text-secondary)}.al-gallery-card-tasks{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color);font-size:12px;color:var(--text-secondary)}
       .al-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:12px;margin:16px 0}.al-stat{flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding:20px 16px;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color)}.al-stat-warning{border-color:var(--text-red);background:color-mix(in srgb,var(--text-red) 5%,var(--background-secondary))}.al-stat-num{font-size:32px;font-weight:700;color:var(--text-primary);line-height:1}.al-stat-label{font-size:12px;color:var(--text-secondary);margin-top:8px}
       .al-panel{flex-shrink:0;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;margin:16px 0}.al-panel-overdue{border-color:var(--text-red);background:color-mix(in srgb,var(--text-red) 3%,var(--background-secondary))}.al-panel-header{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--border-color);background:var(--background-primary);flex-shrink:0}.al-panel-header span:first-child{font-size:16px}.al-panel-header span:nth-child(2){font-size:14px;font-weight:500;color:var(--text-primary)}.al-panel-count{margin-left:auto;font-size:12px;padding:2px 8px;background:var(--background-secondary);color:var(--text-secondary);border-radius:10px}.al-count-overdue{background:color-mix(in srgb,var(--text-red) 15%,transparent);color:var(--text-red)}.al-panel-body{max-height:300px;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
       .al-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;gap:8px;color:var(--text-secondary)}.al-empty span{font-size:40px;opacity:.5}.al-empty-desc{font-size:12px;color:var(--text-muted)}
       .al-goal{padding:12px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-goal:hover{border-color:var(--interactive-accent)}.al-goal-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.al-goal-level{font-size:11px;padding:2px 6px;border-radius:4px;background:var(--interactive-accent);color:#fff}.al-goal-level[data-level="1"]{background:var(--text-purple)}.al-goal-level[data-level="2"]{background:var(--text-blue)}.al-goal-level[data-level="3"]{background:var(--interactive-accent)}.al-goal-level[data-level="4"]{background:var(--text-green)}.al-goal-status{font-size:10px;padding:2px 6px;border-radius:4px;background:var(--text-green);color:#fff}.al-goal-status.completed{background:var(--text-muted)}.al-goal-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:8px}.al-goal-progress{display:flex;align-items:center;gap:8px}.al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-progress-fill{height:100%;background:var(--interactive-accent);border-radius:3px;transition:width .3s}
-      .al-task{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:background .15s;margin-bottom:8px}.al-task:last-child{margin-bottom:0}.al-task:hover{background:var(--background-modifier-hover)}.al-task-check{width:20px;height:20px;border:2px solid var(--border-color);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff;flex-shrink:0;margin-top:2px;cursor:pointer}.al-task-check.checked{background:var(--text-green);border-color:var(--text-green)}.al-task-content{flex:1;min-width:0}.al-task-title{font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px;line-height:1.3}.al-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-task-meta{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary)}.al-field-row{display:flex;align-items:center;gap:8px}.al-field-label{color:var(--text-muted);min-width:32px}.al-field-value{color:var(--text-primary)}.al-task-due{color:var(--text-red)}
+      .al-task{display:flex;align-items:flex-start;gap:10px;padding:12px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:background .15s;margin-bottom:8px}.al-task:last-child{margin-bottom:0}.al-task:hover{background:var(--background-modifier-hover)}.al-task-check{width:18px;height:18px;border:2px solid var(--border-color);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;flex-shrink:0;margin-top:3px;cursor:pointer}.al-task-check.checked{background:var(--text-green);border-color:var(--text-green)}.al-task-content{flex:1;min-width:0}.al-task-title{font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px;line-height:1.3}.al-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-task-meta{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary)}.al-field-row{display:flex;align-items:center;gap:8px}.al-field-label{color:var(--text-muted);min-width:32px}.al-field-value{color:var(--text-primary)}.al-task-due{color:var(--text-red)}
       .al-quick-btn{display:flex;align-items:center;gap:8px;padding:10px 12px;width:100%;text-align:left}.al-quick-btn span:first-child{font-size:18px}.al-quick-btn span:last-child{font-size:13px;color:var(--text-secondary)}
       .al-modal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:flex;align-items:center;justify-content:center}.al-modal-bg{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5)}.al-modal-box{position:relative;background:var(--background-primary);border-radius:12px;width:90%;max-width:420px;border:1px solid var(--border-color);box-shadow:0 10px 40px rgba(0,0,0,.3);overflow:hidden}.al-modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);font-size:16px;font-weight:600;color:var(--text-primary)}.al-modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-secondary);line-height:1}#al-goal-form,#al-task-form{padding:20px}.al-form-item{margin-bottom:16px}.al-form-item label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--text-secondary)}.al-form-item input,.al-form-item select{width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--background-secondary);color:var(--text-primary);box-sizing:border-box}.al-form-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}.al-view-spacer{flex:1}.al-view-settings-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s;margin-left:auto}.al-view-settings-btn:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-field-settings-modal{max-width:480px}.al-field-settings-modal .al-modal-body{padding:20px}.al-field-settings-desc{font-size:13px;color:var(--text-secondary);margin:0 0 16px}.al-field-toggles{display:flex;flex-wrap:wrap;gap:8px}.al-field-toggle-btn{padding:8px 14px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;transition:all .15s}.al-field-toggle-btn:hover{border-color:var(--interactive-accent)}.al-field-toggle-btn.selected{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-modal-footer{display:flex;justify-content:flex-end;gap:10px;padding:16px 20px;border-top:1px solid var(--border-color)}.al-btn{padding:8px 16px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px}.al-btn:hover{background:var(--background-modifier-hover)}
       @media(max-width:800px){.al-body{flex-direction:column}.al-sidebar{width:100%;max-width:none;border-left:none;border-top:1px solid var(--border-color);padding:16px}.al-header-actions{flex-wrap:wrap;gap:6px}.al-header-actions button{min-width:80px}.al-board-column{flex:0 0 220px}.al-detail-content{flex-direction:column}.al-detail-sidebar{width:100%;border-left:none;border-top:1px solid var(--border-color)}}

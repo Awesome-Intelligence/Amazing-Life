@@ -21,6 +21,7 @@ export interface UpdateGoalDTO {
   due?: string | null;
   status?: GoalStatus;
   progress?: number;
+  level?: GoalLevel;
 }
 
 export class GoalManager {
@@ -178,6 +179,7 @@ export class GoalManager {
     if (dto.due !== undefined) goal['A-due'] = dto.due;
     if (dto.status !== undefined) goal['A-status'] = dto.status;
     if (dto.progress !== undefined) goal['A-progress'] = dto.progress;
+    if (dto.level !== undefined) goal['A-level'] = dto.level;
     goal['A-updated'] = now;
     
     const content = await this.storage.readFile(this.storage.getGoalPath(id));
