@@ -19,6 +19,8 @@ export class DashboardView extends ItemView {
   private calendarMode: CalendarViewMode = 'day';
   private calendarDate: Date = new Date();
   private selectedWeekStart: string | null = null;
+  private selectedMonth: string | null = null;
+  private selectedYear: string | null = null;
   
   constructor(leaf: any, plugin: AmazingLife) {
     super(leaf);
@@ -519,11 +521,12 @@ export class DashboardView extends ItemView {
     
     for (let m = 0; m < 12; m++) {
       const isCurrentMonth = today.getFullYear() === year && today.getMonth() === m;
-      const isSelected = year === this.calendarDate.getFullYear() && m === month;
+      const monthKey = `${year}-${String(m + 1).padStart(2, '0')}`;
+      const isSelected = this.selectedMonth === monthKey;
       const classes = ['al-cal-month-item'];
       if (isCurrentMonth) classes.push('current');
       if (isSelected) classes.push('selected');
-      months += `<div class="${classes.join(' ')}" data-year="${year}" data-month="${m + 1}">${monthNames[m]}</div>`;
+      months += `<div class="${classes.join(' ')}" data-year="${year}" data-month="${m + 1}" data-month-key="${monthKey}">${monthNames[m]}</div>`;
     }
     
     return `
@@ -539,12 +542,16 @@ export class DashboardView extends ItemView {
     const today = new Date();
     const isCurrentYear = today.getFullYear() === year;
     
+    const prevYearSel = this.selectedYear === prevYear.toString();
+    const currentYearSel = this.selectedYear === year.toString();
+    const nextYearSel = this.selectedYear === nextYear.toString();
+    
     return `
       <div class="al-calendar-nav"><button class="al-calendar-prev" id="al-cal-prev-year">◀</button><span class="al-calendar-title">选择年份</span><button class="al-calendar-next" id="al-cal-next-year">▶</button></div>
       <div class="al-cal-year-display">
-        <div class="al-cal-year-item ${year === prevYear ? 'selected' : ''}" data-year="${prevYear}">${prevYear}</div>
-        <div class="al-cal-year-item current ${isCurrentYear ? '' : 'selected'}" data-year="${year}">${year}</div>
-        <div class="al-cal-year-item ${year === nextYear ? 'selected' : ''}" data-year="${nextYear}">${nextYear}</div>
+        <div class="al-cal-year-item ${prevYearSel ? 'selected' : ''}" data-year="${prevYear}">${prevYear}</div>
+        <div class="al-cal-year-item current ${isCurrentYear && !this.selectedYear ? '' : (currentYearSel ? 'selected' : '')}" data-year="${year}">${year}</div>
+        <div class="al-cal-year-item ${nextYearSel ? 'selected' : ''}" data-year="${nextYear}">${nextYear}</div>
       </div>
     `;
   }
@@ -669,6 +676,8 @@ export class DashboardView extends ItemView {
         const yearNum = parseInt(month.getAttribute('data-year') || this.calendarDate.getFullYear().toString());
         const monthNum = parseInt(month.getAttribute('data-month') || '1');
         const yearMonth = `${yearNum}-${String(monthNum).padStart(2, '0')}`;
+        this.selectedMonth = yearMonth;
+        this.render();
         this.openMonthlyNoteByDate(yearMonth);
       });
     });
@@ -677,6 +686,8 @@ export class DashboardView extends ItemView {
     content.querySelectorAll('.al-cal-year-item').forEach(yearEl => {
       yearEl.addEventListener('click', () => {
         const yearNum = parseInt(yearEl.getAttribute('data-year') || this.calendarDate.getFullYear().toString());
+        this.selectedYear = yearNum.toString();
+        this.render();
         this.openYearlyNoteByDate(yearNum.toString());
       });
     });
