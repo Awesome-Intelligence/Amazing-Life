@@ -244,6 +244,10 @@ export default class AmazingLife extends Plugin {
     return this.lifeSettings;
   }
   
+  async saveSettings(): Promise<void> {
+    await this.saveData(this.lifeSettings);
+  }
+  
   async saveData(data: any): Promise<void> {
     this.lifeSettings = data;
     await super.saveData(data);

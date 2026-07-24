@@ -2,8 +2,8 @@
  * Dashboard View - Clean Layout Version with View Switching
  */
 
-import { ItemView, Notice } from 'obsidian';
-import { Goal, Task, GoalLevel, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS } from '../types';
+import { ItemView, Notice, TFile } from 'obsidian';
+import { Goal, Task, GoalLevel, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FilterState, SavedFilterView, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS } from '../types';
 import AmazingLife from '../main';
 
 export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
@@ -24,11 +24,20 @@ export class DashboardView extends ItemView {
   private selectedYear: string | null = null;
   private selectedDay: string | null = null;
   private boardGroupBy: BoardGroupBy = 'level';
+  // 筛选相关
+  private filterConditions: FilterCondition[] = [];
+  private filterLogic: FilterLogic = 'and';
+  private showFilterBuilder: boolean = false;
   // 拖拽相关
   private draggingGoalId: string | null = null;
   private draggingGoalEl: HTMLElement | null = null;
   private dragGhost: HTMLElement | null = null;
   private dropTargetColumn: string | null = null;
+  
+  // 生成唯一ID
+  private generateFilterId(): string {
+    return 'filter_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+  }
   
   constructor(leaf: any, plugin: AmazingLife) {
     super(leaf);
@@ -122,6 +131,8 @@ export class DashboardView extends ItemView {
           <button class="al-view-settings-btn" id="al-open-field-settings" title="字段设置"><span>⚙️</span><span>字段</span></button>
         </div>
         
+        ${['list', 'board', 'gallery'].includes(this.currentView) ? this.renderFilterBar() : ''}
+        
         <div class="al-body">
           ${this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, weekComplete, activeTasks)}
         </div>
@@ -133,14 +144,277 @@ export class DashboardView extends ItemView {
   }
   
   private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], weekComplete: number, activeTasks: number): string {
+    // 对目标进行筛选
+    const filteredGoals = this.applyFilterConditions(allGoals);
+    
     switch (this.currentView) {
       case 'goal-detail': return this.selectedGoalId ? this.renderGoalDetailView(this.selectedGoalId) : this.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
       case 'task-detail': return this.selectedTaskId ? this.renderTaskDetailView(this.selectedTaskId) : this.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
-      case 'list': return this.renderListView(allGoals, allTasks);
-      case 'board': return this.renderBoardView(allGoals, allTasks);
-      case 'gallery': return this.renderGalleryView(allGoals, allTasks);
+      case 'list': return this.renderListView(filteredGoals, allTasks);
+      case 'board': return this.renderBoardView(filteredGoals, allTasks);
+      case 'gallery': return this.renderGalleryView(filteredGoals, allTasks);
       default: return this.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
     }
+  }
+  
+  // 应用筛选条件
+  private applyFilterConditions(goals: Goal[]): Goal[] {
+    if (this.filterConditions.length === 0) {
+      return goals;
+    }
+    
+    return goals.filter(goal => {
+      const results = this.filterConditions.map(condition => {
+        return this.evaluateCondition(goal, condition);
+      });
+      
+      // 根据逻辑运算符决定最终结果
+      if (this.filterLogic === 'and') {
+        return results.every(r => r);
+      } else {
+        return results.some(r => r);
+      }
+    });
+  }
+  
+  // 评估单个条件
+  private evaluateCondition(goal: Goal, condition: FilterCondition): boolean {
+    const value = goal[condition.field as keyof Goal];
+    
+    switch (condition.operator) {
+      case 'equals':
+        return value === condition.value;
+      case 'not_equals':
+        return value !== condition.value;
+      case 'contains':
+        if (typeof value === 'string') {
+          return value.toLowerCase().includes(String(condition.value).toLowerCase());
+        }
+        return false;
+      case 'not_contains':
+        if (typeof value === 'string') {
+          return !value.toLowerCase().includes(String(condition.value).toLowerCase());
+        }
+        return true;
+      case 'starts_with':
+        if (typeof value === 'string') {
+          return value.toLowerCase().startsWith(String(condition.value).toLowerCase());
+        }
+        return false;
+      case 'ends_with':
+        if (typeof value === 'string') {
+          return value.toLowerCase().endsWith(String(condition.value).toLowerCase());
+        }
+        return false;
+      case 'greater_than':
+        return typeof value === 'number' && value > Number(condition.value);
+      case 'less_than':
+        return typeof value === 'number' && value < Number(condition.value);
+      case 'greater_or_equal':
+        return typeof value === 'number' && value >= Number(condition.value);
+      case 'less_or_equal':
+        return typeof value === 'number' && value <= Number(condition.value);
+      case 'is_empty':
+        return value === null || value === undefined || value === '';
+      case 'is_not_empty':
+        return value !== null && value !== undefined && value !== '';
+      case 'is_null':
+        return value === null || value === undefined;
+      case 'is_not_null':
+        return value !== null && value !== undefined;
+      default:
+        return true;
+    }
+  }
+  
+  // 获取字段的操作符选项
+  private getOperatorsForFieldType(type: string): FilterOperator[] {
+    switch (type) {
+      case 'string':
+        return ['equals', 'not_equals', 'contains', 'not_contains', 'starts_with', 'ends_with', 'is_empty', 'is_not_empty'];
+      case 'number':
+        return ['equals', 'not_equals', 'greater_than', 'less_than', 'greater_or_equal', 'less_or_equal', 'is_empty', 'is_not_empty'];
+      case 'select':
+        return ['equals', 'not_equals', 'is_empty', 'is_not_empty'];
+      case 'date':
+        return ['equals', 'not_equals', 'greater_than', 'less_than', 'greater_or_equal', 'less_or_equal', 'is_empty', 'is_not_empty'];
+      case 'array':
+        return ['contains', 'not_contains', 'is_empty', 'is_not_empty'];
+      default:
+        return ['equals', 'not_equals'];
+    }
+  }
+  
+  // 获取字段类型
+  private getFieldType(fieldName: string): string {
+    const fieldDef = GOAL_FILTER_FIELDS.find(f => f.field === fieldName);
+    return fieldDef?.type || 'string';
+  }
+  
+  // 渲染筛选栏
+  private renderFilterBar(): string {
+    const savedViews = this.plugin.getSettings().savedFilterViews || [];
+    const hasConditions = this.filterConditions.length > 0;
+    
+    return `
+      <div class="al-filter-bar">
+        <button id="al-toggle-filter-builder" class="al-filter-toggle ${this.showFilterBuilder ? 'active' : ''}">
+          ${this.showFilterBuilder ? '▼ 收起' : '▶ 添加筛选条件'}
+        </button>
+        
+        ${savedViews.length > 0 ? `
+          <div class="al-filter-saved">
+            <select id="al-filter-views-select" class="al-filter-select">
+              <option value="">选择保存的筛选...</option>
+              ${savedViews.map(view => `<option value="${view.id}">${view.name}</option>`).join('')}
+            </select>
+          </div>
+        ` : ''}
+        
+        ${hasConditions ? `
+          <button id="al-filter-save" class="al-filter-btn">💾 保存</button>
+          <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">✕ 清除</button>
+        ` : ''}
+        
+        ${hasConditions ? `<span class="al-filter-count">${this.filterConditions.length} 个条件 (${this.filterLogic === 'and' ? '且' : '或'})</span>` : ''}
+      </div>
+      ${this.showFilterBuilder ? this.renderFilterBuilder() : ''}
+    `;
+  }
+  
+  // 渲染筛选构建器
+  private renderFilterBuilder(): string {
+    const fields = GOAL_FILTER_FIELDS;
+    
+    return `
+      <div class="al-filter-builder">
+        <div class="al-filter-logic-row">
+          <span class="al-filter-logic-label">条件组合：</span>
+          <button class="al-filter-logic-btn ${this.filterLogic === 'and' ? 'active' : ''}" data-logic="and">且 (AND)</button>
+          <button class="al-filter-logic-btn ${this.filterLogic === 'or' ? 'active' : ''}" data-logic="or">或 (OR)</button>
+        </div>
+        
+        <div class="al-filter-conditions">
+          ${this.filterConditions.map((condition, index) => this.renderFilterCondition(condition, index, fields)).join('')}
+        </div>
+        
+        <button id="al-add-filter-condition" class="al-filter-add-btn">+ 添加条件</button>
+      </div>
+    `;
+  }
+  
+  // 渲染单个筛选条件
+  private renderFilterCondition(condition: FilterCondition, index: number, fields: typeof GOAL_FILTER_FIELDS): string {
+    const selectedField = fields.find(f => f.field === condition.field);
+    const fieldType = selectedField?.type || 'string';
+    const availableOperators = this.getOperatorsForFieldType(fieldType);
+    const needsValue = !['is_empty', 'is_not_empty', 'is_null', 'is_not_null'].includes(condition.operator);
+    
+    return `
+      <div class="al-filter-condition" data-condition-id="${condition.id}">
+        <select class="al-filter-field-select" data-condition-index="${index}">
+          ${fields.map(f => `<option value="${f.field}" ${f.field === condition.field ? 'selected' : ''}>${f.label}</option>`).join('')}
+        </select>
+        
+        <select class="al-filter-operator-select" data-condition-index="${index}">
+          ${availableOperators.map(op => `<option value="${op}" ${op === condition.operator ? 'selected' : ''}>${FILTER_OPERATOR_LABELS[op]}</option>`).join('')}
+        </select>
+        
+        ${needsValue ? this.renderConditionValue(condition, selectedField) : '<span class="al-filter-no-value">-</span>'}
+        
+        <button class="al-filter-remove-btn" data-condition-id="${condition.id}">✕</button>
+      </div>
+    `;
+  }
+  
+  // 渲染条件值输入
+  private renderConditionValue(condition: FilterCondition, fieldDef: typeof GOAL_FILTER_FIELDS[0] | undefined): string {
+    if (!fieldDef) {
+      return `<input type="text" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" placeholder="输入值...">`;
+    }
+    
+    if (fieldDef.type === 'select' && fieldDef.options) {
+      return `
+        <select class="al-filter-value-select" data-condition-id="${condition.id}">
+          <option value="">请选择...</option>
+          ${fieldDef.options.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('')}
+        </select>
+      `;
+    }
+    
+    if (fieldDef.type === 'number') {
+      return `<input type="number" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" min="${fieldDef.min || 0}" max="${fieldDef.max || 100}">`;
+    }
+    
+    if (fieldDef.type === 'date') {
+      return `<input type="date" class="al-filter-value-input al-filter-date-input" data-condition-id="${condition.id}" value="${condition.value || ''}">`;
+    }
+    
+    return `<input type="text" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" placeholder="输入值...">`;
+  }
+  
+  // 保存筛选视图
+  private async saveFilterView(): Promise<void> {
+    const name = prompt('请输入筛选视图名称：');
+    if (!name || name.trim() === '') return;
+    
+    const filterView: SavedFilterView = {
+      id: this.generateFilterId(),
+      name: name.trim(),
+      conditions: [...this.filterConditions],
+      logic: this.filterLogic,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    const settings = this.plugin.getSettings();
+    settings.savedFilterViews = [...settings.savedFilterViews, filterView];
+    await this.plugin.saveSettings();
+    
+    new Notice('筛选视图已保存: ' + name);
+    this.render();
+  }
+  
+  // 加载筛选视图
+  private loadFilterView(viewId: string): void {
+    const settings = this.plugin.getSettings();
+    const savedView = settings.savedFilterViews.find(v => v.id === viewId);
+    
+    if (savedView) {
+      this.filterConditions = [...savedView.conditions];
+      this.filterLogic = savedView.logic;
+      this.showFilterBuilder = false;
+      new Notice('已加载筛选视图: ' + savedView.name);
+      this.render();
+    }
+  }
+  
+  // 添加筛选条件
+  private addFilterCondition(): void {
+    const newCondition: FilterCondition = {
+      id: this.generateFilterId(),
+      field: 'A-title',
+      operator: 'contains',
+      value: ''
+    };
+    this.filterConditions = [...this.filterConditions, newCondition];
+    this.render();
+  }
+  
+  // 删除筛选条件
+  private removeFilterCondition(conditionId: string): void {
+    this.filterConditions = this.filterConditions.filter(c => c.id !== conditionId);
+    this.render();
+  }
+  
+  // 更新筛选条件
+  private updateFilterCondition(conditionId: string, updates: Partial<FilterCondition>): void {
+    this.filterConditions = this.filterConditions.map(c => {
+      if (c.id === conditionId) {
+        return { ...c, ...updates };
+      }
+      return c;
+    });
   }
   
   private renderGoalDetailView(goalId: string): string {
@@ -706,8 +980,91 @@ export class DashboardView extends ItemView {
       this.render();
     });
     
-    // Calendar events
-    this.bindCalendarEvents(content);
+    // 筛选事件
+    content.querySelector('#al-toggle-filter-builder')?.addEventListener('click', () => {
+      this.showFilterBuilder = !this.showFilterBuilder;
+      this.render();
+    });
+    
+    content.querySelector('#al-filter-views-select')?.addEventListener('change', (e) => {
+      const viewId = (e.target as HTMLSelectElement).value;
+      if (viewId) {
+        this.loadFilterView(viewId);
+      }
+    });
+    
+    content.querySelector('#al-filter-save')?.addEventListener('click', () => {
+      this.saveFilterView();
+    });
+    
+    content.querySelector('#al-filter-clear')?.addEventListener('click', () => {
+      this.filterConditions = [];
+      this.filterLogic = 'and';
+      this.showFilterBuilder = false;
+      this.render();
+    });
+    
+    content.querySelector('#al-add-filter-condition')?.addEventListener('click', () => {
+      this.addFilterCondition();
+    });
+    
+    // 条件逻辑切换
+    content.querySelectorAll('.al-filter-logic-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const logic = (e.currentTarget as HTMLElement).getAttribute('data-logic') as FilterLogic;
+        if (logic) {
+          this.filterLogic = logic;
+          this.render();
+        }
+      });
+    });
+    
+    // 字段选择变化
+    content.querySelectorAll('.al-filter-field-select').forEach(select => {
+      select.addEventListener('change', (e) => {
+        const conditionId = (e.currentTarget as HTMLElement).closest('.al-filter-condition')?.getAttribute('data-condition-id');
+        if (conditionId) {
+          const newField = (e.target as HTMLSelectElement).value;
+          this.updateFilterCondition(conditionId, { field: newField });
+          this.render();
+        }
+      });
+    });
+    
+    // 操作符变化
+    content.querySelectorAll('.al-filter-operator-select').forEach(select => {
+      select.addEventListener('change', (e) => {
+        const conditionId = (e.currentTarget as HTMLElement).closest('.al-filter-condition')?.getAttribute('data-condition-id');
+        if (conditionId) {
+          const newOperator = (e.target as HTMLSelectElement).value as FilterOperator;
+          this.updateFilterCondition(conditionId, { operator: newOperator });
+          this.render();
+        }
+      });
+    });
+    
+    // 值输入变化
+    content.querySelectorAll('.al-filter-value-input, .al-filter-value-select').forEach(input => {
+      input.addEventListener('change', (e) => {
+        const conditionId = (e.currentTarget as HTMLElement).getAttribute('data-condition-id');
+        if (conditionId) {
+          const newValue = (e.target as HTMLInputElement | HTMLSelectElement).value;
+          this.updateFilterCondition(conditionId, { value: newValue || null });
+        }
+      });
+    });
+    
+    // 删除条件
+    content.querySelectorAll('.al-filter-remove-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const conditionId = (e.currentTarget as HTMLElement).getAttribute('data-condition-id');
+        if (conditionId) {
+          this.removeFilterCondition(conditionId);
+        }
+      });
+    });
+    
+    // Board group by selector
     
     // Task actions
     content.querySelector('#al-complete-task')?.addEventListener('click', async () => { if (this.selectedTaskId) { await this.plugin.getTaskManager().completeTask(this.selectedTaskId); this.loadAndRender(); } });
@@ -1106,6 +1463,8 @@ export class DashboardView extends ItemView {
       .al-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;min-width:280px}.al-cal-day-header{font-size:11px;color:var(--text-secondary);padding:4px}.al-cal-day{font-size:12px;padding:6px;border-radius:4px;cursor:pointer;transition:all .15s;color:var(--text-primary)}.al-cal-day:hover{background:var(--background-modifier-hover)}.al-cal-day.empty{background:transparent;cursor:default}.al-cal-day.today{background:var(--interactive-accent);color:#fff}.al-cal-day.day-selected{background:var(--interactive-accent-faint,color-mix(in srgb,var(--interactive-accent) 20%,transparent));border:1px solid var(--interactive-accent)}.al-cal-day.today.day-selected{background:var(--interactive-accent);color:#fff}.al-cal-day.week-selected{background:var(--interactive-accent-faint,color-mix(in srgb,var(--interactive-accent) 20%,transparent));border:1px solid var(--interactive-accent)}.al-cal-day.today.week-selected{background:var(--interactive-accent);color:#fff}
       .al-cal-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;min-width:200px}.al-cal-month-item{padding:10px;text-align:center;border-radius:6px;border:1px solid var(--border-color);cursor:pointer;font-size:12px;color:var(--text-secondary);transition:all .15s}.al-cal-month-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-month-item.current{border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}.al-cal-month-item.selected{border-color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent);font-weight:600}
       .al-cal-year-display{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px 0;min-width:200px}.al-cal-year-item{padding:16px 8px;text-align:center;border-radius:8px;border:1px solid var(--border-color);cursor:pointer;font-size:16px;font-weight:600;color:var(--text-secondary);transition:all .15s}.al-cal-year-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-year-item.current{font-size:20px;border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}.al-cal-year-item.selected{border-color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent)}
+      .al-filter-bar{display:flex;gap:10px;padding:10px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);align-items:center;flex-wrap:wrap}.al-filter-toggle{padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-toggle:hover{border-color:var(--interactive-accent)}.al-filter-toggle.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-filter-btn{padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-btn:hover{border-color:var(--interactive-accent)}.al-filter-btn-danger{color:var(--text-red);border-color:var(--text-red)}.al-filter-btn-danger:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent)}.al-filter-count{padding:4px 10px;background:var(--interactive-accent);color:#fff;border-radius:10px;font-size:11px}.al-filter-saved{margin-left:auto}
+      .al-filter-builder{padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color)}.al-filter-logic-row{display:flex;align-items:center;gap:8px;margin-bottom:12px}.al-filter-logic-label{font-size:12px;color:var(--text-secondary)}.al-filter-logic-btn{padding:4px 10px;border:1px solid var(--border-color);border-radius:4px;background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;transition:all .15s}.al-filter-logic-btn:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-filter-logic-btn.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-filter-conditions{display:flex;flex-direction:column;gap:8px}.al-filter-condition{display:flex;align-items:center;gap:8px;padding:8px;background:var(--background-secondary);border-radius:6px;border:1px solid var(--border-color)}.al-filter-field-select,.al-filter-operator-select,.al-filter-value-select{padding:6px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer}.al-filter-field-select:hover,.al-filter-operator-select:hover,.al-filter-value-select:hover{border-color:var(--interactive-accent)}.al-filter-value-input{padding:6px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--background-primary);color:var(--text-primary);font-size:12px;min-width:120px}.al-filter-value-input:hover{border-color:var(--interactive-accent)}.al-filter-value-input:focus{outline:none;border-color:var(--interactive-accent)}.al-filter-date-input{min-width:140px}.al-filter-no-value{padding:6px 8px;color:var(--text-muted);font-size:12px}.al-filter-remove-btn{width:24px;height:24px;border:none;border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;margin-left:auto}.al-filter-remove-btn:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent);color:var(--text-red)}.al-filter-add-btn{width:100%;padding:8px;margin-top:8px;border:1px dashed var(--border-color);border-radius:6px;background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-add-btn:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 5%,transparent)}
     `;
     document.head.appendChild(style);
   }
