@@ -33,6 +33,8 @@ export class DashboardView extends ItemView {
   private draggingGoalEl: HTMLElement | null = null;
   private dragGhost: HTMLElement | null = null;
   private dropTargetColumn: string | null = null;
+  // 导航历史
+  private viewHistory: Array<{ view: ViewType; goalId?: string | null; taskId?: string | null }> = [];
   
   // 生成唯一ID
   private generateFilterId(): string {
@@ -59,6 +61,44 @@ export class DashboardView extends ItemView {
     } catch (error) {
       console.error('[AL] Error loading data:', error);
       new Notice('加载数据失败: ' + (error as Error).message);
+    }
+  }
+  
+  // 导航到新页面并记录历史
+  private navigateTo(view: ViewType, goalId: string | null, taskId: string | null): void {
+    // 记录当前状态到历史
+    this.viewHistory.push({
+      view: this.currentView,
+      goalId: this.selectedGoalId,
+      taskId: this.selectedTaskId
+    });
+    
+    // 限制历史记录数量
+    if (this.viewHistory.length > 20) {
+      this.viewHistory.shift();
+    }
+    
+    // 导航到新页面
+    this.currentView = view;
+    this.selectedGoalId = goalId;
+    this.selectedTaskId = taskId;
+    this.render();
+  }
+  
+  // 返回上一页
+  private goBack(): void {
+    if (this.viewHistory.length > 0) {
+      const prevState = this.viewHistory.pop()!;
+      this.currentView = prevState.view;
+      this.selectedGoalId = prevState.goalId ?? null;
+      this.selectedTaskId = prevState.taskId ?? null;
+      this.render();
+    } else {
+      // 没有历史记录，返回仪表盘
+      this.currentView = 'dashboard';
+      this.selectedGoalId = null;
+      this.selectedTaskId = null;
+      this.render();
     }
   }
   
@@ -961,22 +1001,23 @@ export class DashboardView extends ItemView {
     content.querySelectorAll('.al-view-tab').forEach(tab => { tab.addEventListener('click', (e) => { const view = (e.currentTarget as HTMLElement).getAttribute('data-view') as ViewType; if (view && view !== this.currentView) { this.currentView = view; if (view !== 'goal-detail' && view !== 'task-detail') { this.selectedGoalId = null; this.selectedTaskId = null; } this.render(); } }); });
     
     // Back button
-    content.querySelector('#al-back-btn')?.addEventListener('click', () => { this.currentView = 'dashboard'; this.selectedGoalId = null; this.selectedTaskId = null; this.render(); });
+    // 返回按钮 - 返回上一页
+    content.querySelector('#al-back-btn')?.addEventListener('click', () => { this.goBack(); });
     
-    // Goal click events
-    content.querySelectorAll('.al-goal, .al-gallery-goal').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.selectedGoalId = goalId; this.currentView = 'goal-detail'; this.render(); } }); });
+    // Goal click events - 记录历史
+    content.querySelectorAll('.al-goal, .al-gallery-goal').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.navigateTo('goal-detail', goalId, null); } }); });
     
-    // Task click events (in detail views)
-    content.querySelectorAll('.al-detail-task').forEach(el => { el.addEventListener('click', (e) => { const taskId = (e.currentTarget as HTMLElement).getAttribute('data-task-id'); if (taskId) { this.selectedTaskId = taskId; this.currentView = 'task-detail'; this.render(); } }); });
+    // Task click events (in detail views) - 记录历史
+    content.querySelectorAll('.al-detail-task').forEach(el => { el.addEventListener('click', (e) => { const taskId = (e.currentTarget as HTMLElement).getAttribute('data-task-id'); if (taskId) { this.navigateTo('task-detail', null, taskId); } }); });
     
-    // Goal row click in list view
-    content.querySelectorAll('.al-table-row[data-goal-id]').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.selectedGoalId = goalId; this.currentView = 'goal-detail'; this.render(); } }); });
+    // Goal row click in list view - 记录历史
+    content.querySelectorAll('.al-table-row[data-goal-id]').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.navigateTo('goal-detail', goalId, null); } }); });
     
     // Goal tag click in list view
     content.querySelectorAll('.al-goal-tag').forEach(el => { el.addEventListener('click', (e) => { e.stopPropagation(); const goalId = (e.target as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.selectedGoalId = goalId; this.currentView = 'goal-detail'; this.render(); } }); });
     
     // Task goal card click
-    content.querySelectorAll('.al-task-goal-card').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.selectedGoalId = goalId; this.currentView = 'goal-detail'; this.render(); } }); });
+    content.querySelectorAll('.al-task-goal-card').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.navigateTo('goal-detail', goalId, null); } }); });
     
     content.querySelector('#al-add-task-to-goal')?.addEventListener('click', () => { if (this.selectedGoalId) this.showCreateTaskModalForGoal(this.selectedGoalId); });
     
