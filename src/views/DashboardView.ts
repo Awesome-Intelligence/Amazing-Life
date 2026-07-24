@@ -1160,6 +1160,17 @@ export class DashboardView extends ItemView {
         
         this.startGoalDrag(cardEl as HTMLElement, goalId, e as MouseEvent);
       });
+      
+      // 点击进入详情页
+      cardEl.addEventListener('click', (e) => {
+        // 如果正在拖拽，不触发点击
+        if (this.draggingGoalId) return;
+        
+        const goalId = (cardEl as HTMLElement).getAttribute('data-goal-id');
+        if (goalId) {
+          this.navigateTo('goal-detail', goalId, null);
+        }
+      });
     });
     
     // 列的放置区域
