@@ -16,7 +16,7 @@ export class DashboardView extends ItemView {
   private currentView: ViewType = 'dashboard';
   private selectedGoalId: string | null = null;
   private selectedTaskId: string | null = null;
-  private calendarMode: CalendarViewMode = 'month';
+  private calendarMode: CalendarViewMode = 'day';
   private calendarDate: Date = new Date();
   private selectedWeekStart: string | null = null;
   
@@ -518,13 +518,18 @@ export class DashboardView extends ItemView {
   
   private renderMonthView(date: Date): string {
     const year = date.getFullYear();
+    const month = date.getMonth();
     const today = new Date();
     let months = '';
     const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
     
     for (let m = 0; m < 12; m++) {
       const isCurrentMonth = today.getFullYear() === year && today.getMonth() === m;
-      months += `<div class="al-cal-month-item ${isCurrentMonth ? 'current' : ''}" data-year="${year}" data-month="${m + 1}">${monthNames[m]}</div>`;
+      const isSelected = year === this.calendarDate.getFullYear() && m === month;
+      const classes = ['al-cal-month-item'];
+      if (isCurrentMonth) classes.push('current');
+      if (isSelected) classes.push('selected');
+      months += `<div class="${classes.join(' ')}" data-year="${year}" data-month="${m + 1}">${monthNames[m]}</div>`;
     }
     
     return `
@@ -537,13 +542,15 @@ export class DashboardView extends ItemView {
     const year = date.getFullYear();
     const prevYear = year - 1;
     const nextYear = year + 1;
+    const today = new Date();
+    const isCurrentYear = today.getFullYear() === year;
     
     return `
       <div class="al-calendar-nav"><button class="al-calendar-prev" id="al-cal-prev-year">◀</button><span class="al-calendar-title">选择年份</span><button class="al-calendar-next" id="al-cal-next-year">▶</button></div>
       <div class="al-cal-year-display">
-        <div class="al-cal-year-item" data-year="${prevYear}">${prevYear}</div>
-        <div class="al-cal-year-item current" data-year="${year}">${year}</div>
-        <div class="al-cal-year-item" data-year="${nextYear}">${nextYear}</div>
+        <div class="al-cal-year-item ${year === prevYear ? 'selected' : ''}" data-year="${prevYear}">${prevYear}</div>
+        <div class="al-cal-year-item current ${isCurrentYear ? '' : 'selected'}" data-year="${year}">${year}</div>
+        <div class="al-cal-year-item ${year === nextYear ? 'selected' : ''}" data-year="${nextYear}">${nextYear}</div>
       </div>
     `;
   }
@@ -639,8 +646,8 @@ export class DashboardView extends ItemView {
     content.querySelector('#al-cal-next-month')?.addEventListener('click', () => { this.calendarDate.setFullYear(this.calendarDate.getFullYear() + 1); this.selectedWeekStart = null; this.render(); });
     content.querySelector('#al-cal-next-year')?.addEventListener('click', () => { this.calendarDate.setFullYear(this.calendarDate.getFullYear() + 1); this.selectedWeekStart = null; this.render(); });
     
-    // 日视图：点击日期打开日记
-    content.querySelectorAll('.al-cal-day:not(.empty)').forEach(day => {
+    // 日视图：点击日期打开日记（排除有 data-week-start 的元素）
+    content.querySelectorAll('.al-cal-day:not(.empty):not([data-week-start])').forEach(day => {
       day.addEventListener('click', () => {
         const dateStr = day.getAttribute('data-date');
         if (dateStr) {
@@ -650,7 +657,7 @@ export class DashboardView extends ItemView {
     });
     
     // 周视图：点击选中整行并打开周记
-    content.querySelectorAll('[data-week-start]').forEach(day => {
+    content.querySelectorAll('.al-cal-day[data-week-start]').forEach(day => {
       day.addEventListener('click', () => {
         const weekStart = day.getAttribute('data-week-start');
         if (weekStart) {
@@ -662,25 +669,21 @@ export class DashboardView extends ItemView {
       });
     });
     
-    // 月视图：点击月份跳转到周视图
+    // 月视图：点击月份打开月记
     content.querySelectorAll('.al-cal-month-item').forEach(month => {
       month.addEventListener('click', () => {
         const yearNum = parseInt(month.getAttribute('data-year') || this.calendarDate.getFullYear().toString());
-        const monthNum = parseInt(month.getAttribute('data-month') || '1') - 1;
-        this.calendarDate.setFullYear(yearNum);
-        this.calendarDate.setMonth(monthNum);
-        this.calendarMode = 'week';
-        this.render();
+        const monthNum = parseInt(month.getAttribute('data-month') || '1');
+        const yearMonth = `${yearNum}-${String(monthNum).padStart(2, '0')}`;
+        this.openMonthlyNoteByDate(yearMonth);
       });
     });
     
-    // 年视图：点击年份跳转到月视图
-    content.querySelectorAll('.al-cal-year-item').forEach(year => {
-      year.addEventListener('click', () => {
-        const yearNum = parseInt(year.getAttribute('data-year') || this.calendarDate.getFullYear().toString());
-        this.calendarDate.setFullYear(yearNum);
-        this.calendarMode = 'month';
-        this.render();
+    // 年视图：点击年份打开年记
+    content.querySelectorAll('.al-cal-year-item').forEach(yearEl => {
+      yearEl.addEventListener('click', () => {
+        const yearNum = parseInt(yearEl.getAttribute('data-year') || this.calendarDate.getFullYear().toString());
+        this.openYearlyNoteByDate(yearNum.toString());
       });
     });
   }
@@ -707,6 +710,24 @@ export class DashboardView extends ItemView {
       new Notice(`已打开 ${weekKey} 周记`);
     } catch (error) {
       new Notice('打开周记失败');
+    }
+  }
+  
+  private async openMonthlyNoteByDate(yearMonth: string): Promise<void> {
+    try {
+      await this.plugin.getNoteManager().getOrCreateMonthlyNote(yearMonth);
+      new Notice(`已打开 ${yearMonth} 月记`);
+    } catch (error) {
+      new Notice('打开月记失败');
+    }
+  }
+  
+  private async openYearlyNoteByDate(year: string): Promise<void> {
+    try {
+      await this.plugin.getNoteManager().getOrCreateYearlyNote(year);
+      new Notice(`已打开 ${year} 年记`);
+    } catch (error) {
+      new Notice('打开年记失败');
     }
   }
   
@@ -858,8 +879,8 @@ export class DashboardView extends ItemView {
       @media(max-width:640px){.al-header{flex-direction:column;align-items:flex-start;gap:12px;padding:12px 16px}.al-view-tabs{padding:8px 12px;overflow-x:auto}.al-view-tab{padding:6px 12px;font-size:12px}.al-header-actions{width:100%;justify-content:stretch}.al-header-actions button{flex:1;min-width:0;justify-content:center;gap:4px;font-size:11px}.al-main{padding:12px;gap:12px}.al-stats{grid-template-columns:repeat(2,1fr);gap:8px}.al-stat{padding:12px}.al-stat-num{font-size:24px}.al-detail-header{flex-wrap:wrap;padding:12px 16px}.al-detail-title h2{font-size:16px}.al-detail-main{padding:16px}.al-detail-stats{flex-wrap:wrap}.al-detail-stat{min-width:80px}.al-board-view{padding:8px;gap:8px}.al-board-column{flex:0 0 180px}.al-gallery-view{padding:12px}.al-gallery-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}.al-gallery-card{padding:12px}.al-gallery-card-title{font-size:13px}}
       .al-panel-calendar{height:auto}.al-calendar-body{padding:0}.al-calendar-modes{display:flex;gap:4px;padding:8px;border-bottom:1px solid var(--border-color)}.al-calendar-mode-btn{padding:4px 10px;border:1px solid var(--border-color);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px;transition:all .15s}.al-calendar-mode-btn:hover{color:var(--text-primary);border-color:var(--interactive-accent)}.al-calendar-mode-btn.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-calendar-content{padding:8px}.al-calendar-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.al-calendar-nav button{background:none;border:none;cursor:pointer;color:var(--text-secondary);padding:4px 8px;border-radius:4px}.al-calendar-nav button:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-calendar-title{font-size:13px;font-weight:500;color:var(--text-primary)}
       .al-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}.al-cal-day-header{font-size:11px;color:var(--text-secondary);padding:4px}.al-cal-day{font-size:12px;padding:6px;border-radius:4px;cursor:pointer;transition:all .15s;color:var(--text-primary)}.al-cal-day:hover{background:var(--background-modifier-hover)}.al-cal-day.empty{background:transparent;cursor:default}.al-cal-day.today{background:var(--interactive-accent);color:#fff}.al-cal-day.week-selected{background:var(--interactive-accent-faint,color-mix(in srgb,var(--interactive-accent) 20%,transparent));border:1px solid var(--interactive-accent)}.al-cal-day.today.week-selected{background:var(--interactive-accent);color:#fff}
-      .al-cal-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.al-cal-month-item{padding:10px;text-align:center;border-radius:6px;border:1px solid var(--border-color);cursor:pointer;font-size:12px;color:var(--text-secondary);transition:all .15s}.al-cal-month-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-month-item.current{border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}
-      .al-cal-year-display{display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 0}.al-cal-year-item{padding:12px 32px;font-size:24px;font-weight:600;color:var(--text-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-cal-year-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-year-item.current{font-size:32px;border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}
+      .al-cal-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.al-cal-month-item{padding:10px;text-align:center;border-radius:6px;border:1px solid var(--border-color);cursor:pointer;font-size:12px;color:var(--text-secondary);transition:all .15s}.al-cal-month-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-month-item.current{border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}.al-cal-month-item.selected{border-color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent);font-weight:600}
+      .al-cal-year-display{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px 0}.al-cal-year-item{padding:16px 8px;text-align:center;border-radius:8px;border:1px solid var(--border-color);cursor:pointer;font-size:16px;font-weight:600;color:var(--text-secondary);transition:all .15s}.al-cal-year-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-year-item.current{font-size:20px;border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}.al-cal-year-item.selected{border-color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent)}
     `;
     document.head.appendChild(style);
   }
