@@ -2,7 +2,7 @@
  * Dashboard View - Clean Layout Version with View Switching
  */
 
-import { ItemView, Notice, TFile } from 'obsidian';
+import { ItemView, Notice, TFile, setIcon } from 'obsidian';
 import { Goal, Task, GoalLevel, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FilterState, SavedFilterView, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS } from '../types';
 import AmazingLife from '../main';
 
@@ -112,23 +112,16 @@ export class DashboardView extends ItemView {
       <div class="al-page">
         <div class="al-header">
           <div class="al-header-left">
-            <div class="al-title"><span>🎯</span><span>Amazing Life</span></div>
+            <div class="al-title">Amazing Life</div>
             <div class="al-date">${new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</div>
-          </div>
-          <div class="al-header-actions">
-            <button id="al-refresh-btn"><span>🔄</span><span>刷新</span></button>
-            <button class="mod-cta" id="al-create-goal-btn"><span>+</span><span>创建目标</span></button>
-            <button class="mod-cta" id="al-create-task-btn"><span>+</span><span>创建任务</span></button>
           </div>
         </div>
         
         <div class="al-view-tabs">
-          <button class="al-view-tab ${this.currentView === 'dashboard' ? 'active' : ''}" data-view="dashboard"><span>📊</span><span>仪表盘</span></button>
-          <button class="al-view-tab ${this.currentView === 'list' ? 'active' : ''}" data-view="list"><span>📋</span><span>列表</span></button>
-          <button class="al-view-tab ${this.currentView === 'board' ? 'active' : ''}" data-view="board"><span>📌</span><span>看板</span></button>
-          <button class="al-view-tab ${this.currentView === 'gallery' ? 'active' : ''}" data-view="gallery"><span>🖼️</span><span>画廊</span></button>
-          <div class="al-view-spacer"></div>
-          <button class="al-view-settings-btn" id="al-open-field-settings" title="字段设置"><span>⚙️</span><span>字段</span></button>
+          <button class="al-view-tab ${this.currentView === 'dashboard' ? 'active' : ''}" data-view="dashboard"><span class="al-tab-icon" data-icon="layout-grid"></span><span>仪表盘</span></button>
+          <button class="al-view-tab ${this.currentView === 'list' ? 'active' : ''}" data-view="list"><span class="al-tab-icon" data-icon="list"></span><span>列表</span></button>
+          <button class="al-view-tab ${this.currentView === 'board' ? 'active' : ''}" data-view="board"><span class="al-tab-icon" data-icon="columns"></span><span>看板</span></button>
+          <button class="al-view-tab ${this.currentView === 'gallery' ? 'active' : ''}" data-view="gallery"><span class="al-tab-icon" data-icon="gallery-horizontal"></span><span>画廊</span></button>
         </div>
         
         ${['list', 'board', 'gallery'].includes(this.currentView) ? this.renderFilterBar() : ''}
@@ -138,9 +131,10 @@ export class DashboardView extends ItemView {
         </div>
       </div>
     `;
-    
-    this.bindEvents();
-    this.addStyles();
+     
+     this.bindEvents();
+     this.addStyles();
+    this.setTabIcons();
   }
   
   private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], weekComplete: number, activeTasks: number): string {
@@ -256,11 +250,25 @@ export class DashboardView extends ItemView {
     const savedViews = this.plugin.getSettings().savedFilterViews || [];
     const hasConditions = this.filterConditions.length > 0;
     
+    const groupByOptions = [
+      { value: 'level', label: '按层级' },
+      { value: 'goalStatus', label: '按状态' }
+    ];
+    
     return `
       <div class="al-filter-bar">
         <button id="al-toggle-filter-builder" class="al-filter-toggle ${this.showFilterBuilder ? 'active' : ''}">
-          ${this.showFilterBuilder ? '▼ 收起' : '▶ 添加筛选条件'}
+          ${this.showFilterBuilder ? '收起' : '添加筛选条件'}
         </button>
+        
+        ${this.currentView === 'board' ? `
+          <div class="al-board-group-inline">
+            <span class="al-board-group-label">分组：</span>
+            <select id="al-board-group-by" class="al-filter-select">
+              ${groupByOptions.map(opt => `<option value="${opt.value}" ${this.boardGroupBy === opt.value ? 'selected' : ''}>${opt.label}</option>`).join('')}
+            </select>
+          </div>
+        ` : ''}
         
         ${savedViews.length > 0 ? `
           <div class="al-filter-saved">
@@ -272,11 +280,17 @@ export class DashboardView extends ItemView {
         ` : ''}
         
         ${hasConditions ? `
-          <button id="al-filter-save" class="al-filter-btn">💾 保存</button>
-          <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">✕ 清除</button>
+          <button id="al-filter-save" class="al-filter-btn">保存</button>
+          <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">清除</button>
         ` : ''}
         
         ${hasConditions ? `<span class="al-filter-count">${this.filterConditions.length} 个条件 (${this.filterLogic === 'and' ? '且' : '或'})</span>` : ''}
+        
+        <div class="al-filter-spacer"></div>
+        <button class="al-filter-settings-btn" id="al-open-field-settings" title="字段设置">
+          <span class="al-tab-icon" data-icon="settings"></span>
+          <span>字段</span>
+        </button>
       </div>
       ${this.showFilterBuilder ? this.renderFilterBuilder() : ''}
     `;
@@ -633,7 +647,7 @@ export class DashboardView extends ItemView {
       `;
     }).join('');
     
-    return `<div class="al-table-view"><table class="al-table"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table></div>`;
+    return `<div class="al-table-view"><table class="al-table"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table><div class="al-add-goal-link" id="al-list-add-goal">+ 添加目标</div></div>`;
   }
   
   private renderBoardView(allGoals: Goal[], allTasks: Task[]): string {
@@ -641,11 +655,6 @@ export class DashboardView extends ItemView {
     const levelColors: Record<number, string> = { 1: '#8B5CF6', 2: '#3B82F6', 3: '#6366F1', 4: '#22C55E' };
     const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
     const statusColors: Record<string, string> = { 'active': 'var(--text-blue)', 'completed': 'var(--text-green)', 'abandoned': 'var(--text-muted)' };
-    
-    const groupByOptions = [
-      { value: 'level', label: '按层级' },
-      { value: 'goalStatus', label: '按状态' }
-    ];
     
     let columnsHtml = '';
     
@@ -663,6 +672,9 @@ export class DashboardView extends ItemView {
           </div>
           <div class="al-board-column-body">
             ${goals.length === 0 ? this.renderEmpty('🎯', '暂无目标', '') : this.renderGoalsForBoard(goals, allTasks)}
+          </div>
+          <div class="al-board-column-footer">
+            <div class="al-add-goal-btn" data-prefill-level="${level}">+ 添加目标</div>
           </div>
         </div>`;
       }).join('');
@@ -682,19 +694,14 @@ export class DashboardView extends ItemView {
           <div class="al-board-column-body">
             ${goals.length === 0 ? this.renderEmpty('🎯', '暂无目标', '') : this.renderGoalsForBoard(goals, allTasks)}
           </div>
+          <div class="al-board-column-footer">
+            <div class="al-add-goal-btn" data-prefill-status="${status}">+ 添加目标</div>
+          </div>
         </div>`;
       }).join('');
     }
     
     return `
-      <div class="al-board-header">
-        <div class="al-board-group-selector">
-          <span class="al-board-group-label">分组：</span>
-          <select id="al-board-group-by" class="al-board-group-select">
-            ${groupByOptions.map(opt => `<option value="${opt.value}" ${this.boardGroupBy === opt.value ? 'selected' : ''}>${opt.label}</option>`).join('')}
-          </select>
-        </div>
-      </div>
       <div class="al-board-view">${columnsHtml}</div>
     `;
   }
@@ -742,7 +749,7 @@ export class DashboardView extends ItemView {
       return cardContent;
     }).join('');
     
-    return `<div class="al-gallery-view"><div class="al-gallery-section"><div class="al-gallery-section-title">🎯 目标 (${allGoals.length})</div><div class="al-gallery-grid">${cardsHtml}</div></div></div>`;
+    return `<div class="al-gallery-view"><div class="al-gallery-section"><div class="al-gallery-section-title">目标 (${allGoals.length})</div><div class="al-gallery-grid">${cardsHtml}<div class="al-gallery-add-card" id="al-gallery-add-goal"><span class="al-gallery-add-icon">+</span><span>添加目标</span></div></div></div></div>`;
   }
   
   private calculateWeekComplete(completedTasks: Task[]): number {
@@ -968,10 +975,29 @@ export class DashboardView extends ItemView {
     // Task goal card click
     content.querySelectorAll('.al-task-goal-card').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.selectedGoalId = goalId; this.currentView = 'goal-detail'; this.render(); } }); });
     
-    content.querySelector('#al-refresh-btn')?.addEventListener('click', () => { new Notice('正在刷新...'); this.loadAndRender(); });
-    content.querySelector('#al-create-goal-btn')?.addEventListener('click', () => this.showCreateGoalModal());
-    content.querySelector('#al-create-task-btn')?.addEventListener('click', () => this.showCreateTaskModal());
     content.querySelector('#al-add-task-to-goal')?.addEventListener('click', () => { if (this.selectedGoalId) this.showCreateTaskModalForGoal(this.selectedGoalId); });
+    
+    // 列表视图添加按钮
+    content.querySelector('#al-list-add-goal')?.addEventListener('click', () => this.showCreateGoalModal());
+    
+    // 画廊视图添加按钮
+    content.querySelector('#al-gallery-add-goal')?.addEventListener('click', () => this.showCreateGoalModal());
+    
+    // 看板列添加按钮（事件委托）
+    content.querySelectorAll('.al-add-goal-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const el = e.currentTarget as HTMLElement;
+        const prefillLevel = el.getAttribute('data-prefill-level');
+        const prefillStatus = el.getAttribute('data-prefill-status');
+        if (prefillLevel) {
+          this.showCreateGoalModal({ level: parseInt(prefillLevel) });
+        } else if (prefillStatus) {
+          this.showCreateGoalModal({ status: prefillStatus });
+        } else {
+          this.showCreateGoalModal();
+        }
+      });
+    });
     
     // Board group by selector
     content.querySelector('#al-board-group-by')?.addEventListener('change', (e) => {
@@ -1399,16 +1425,25 @@ export class DashboardView extends ItemView {
     });
   }
   
-  private showCreateGoalModal(): void {
+  private showCreateGoalModal(prefill?: { level?: number; status?: string }): void {
+    const levelOptions = [1, 2, 3, 4].map(level => {
+      const labels: Record<number, string> = { 1: '🏆 人生目标', 2: '📅 阶段目标', 3: '📆 年度目标', 4: '⚡ 短期目标' };
+      const selected = prefill?.level === level ? 'selected' : (level === 3 && !prefill?.level ? 'selected' : '');
+      return `<option value="${level}" ${selected}>${labels[level]}</option>`;
+    }).join('');
+    
     const modal = document.createElement('div');
     modal.className = 'al-modal';
-    modal.innerHTML = `<div class="al-modal-bg"></div><div class="al-modal-box"><div class="al-modal-header"><span>🎯 创建目标</span><button class="al-modal-close">×</button></div><form id="al-goal-form"><div class="al-form-item"><label>目标名称</label><input type="text" id="al-goal-title" required placeholder="例如：学习一门新语言"></div><div class="al-form-item"><label>目标层级</label><select id="al-goal-level"><option value="1">🏆 人生目标</option><option value="2">📅 阶段目标</option><option value="3" selected>📆 年度目标</option><option value="4">⚡ 短期目标</option></select></div><div class="al-form-item"><label>截止日期</label><input type="date" id="al-goal-due"></div><div class="al-form-actions"><button type="button" id="al-cancel-goal">取消</button><button type="submit" class="mod-cta">创建</button></div></form></div>`;
+    modal.innerHTML = `<div class="al-modal-bg"></div><div class="al-modal-box"><div class="al-modal-header"><span>🎯 创建目标</span><button class="al-modal-close">×</button></div><form id="al-goal-form"><div class="al-form-item"><label>目标名称</label><input type="text" id="al-goal-title" required placeholder="例如：学习一门新语言"></div><div class="al-form-item"><label>目标层级</label><select id="al-goal-level">${levelOptions}</select></div><div class="al-form-item"><label>截止日期</label><input type="date" id="al-goal-due"></div><div class="al-form-actions"><button type="button" id="al-cancel-goal">取消</button><button type="submit" class="mod-cta">创建</button></div></form></div>`;
     document.body.appendChild(modal);
     const close = () => modal.remove();
     modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
     modal.querySelector('.al-modal-close')?.addEventListener('click', close);
     modal.querySelector('#al-cancel-goal')?.addEventListener('click', close);
     modal.querySelector('#al-goal-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const title = (modal.querySelector('#al-goal-title') as HTMLInputElement).value.trim(); const level = Number((modal.querySelector('#al-goal-level') as HTMLSelectElement).value) as GoalLevel; const due = (modal.querySelector('#al-goal-due') as HTMLInputElement).value || null; if (!title) { new Notice('请输入目标名称'); return; } try { await this.plugin.getGoalManager().createGoal({ title, level, due }); new Notice('目标创建成功！'); close(); this.loadAndRender(); } catch (error) { new Notice('创建失败: ' + (error as Error).message); } });
+    
+    // 自动聚焦到标题输入框
+    setTimeout(() => (modal.querySelector('#al-goal-title') as HTMLInputElement)?.focus(), 100);
   }
   
   private showCreateTaskModal(): void {
@@ -1440,15 +1475,29 @@ export class DashboardView extends ItemView {
   
   private removeStyles(): void { const oldStyle = document.getElementById('al-dashboard-styles'); if (oldStyle) oldStyle.remove(); }
   
+  private async setTabIcons(): Promise<void> {
+    const icons = this.contentEl.querySelectorAll('.al-tab-icon');
+    for (const iconEl of icons) {
+      const iconName = iconEl.getAttribute('data-icon');
+      if (iconName) {
+        try {
+          setIcon(iconEl as HTMLElement, iconName);
+        } catch (e) {
+          // 忽略错误
+        }
+      }
+    }
+  }
+  
   private addStyles(): void {
     this.removeStyles();
     const style = document.createElement('style');
     style.id = 'al-dashboard-styles';
     style.textContent = `
-      .al-dashboard{padding:0;height:100%;display:flex;flex-direction:column;overflow:hidden}.al-page{display:flex;flex-direction:column;height:100%;overflow:hidden}.al-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border-color);flex-shrink:0}.al-header-left{display:flex;flex-direction:column;gap:2px}.al-title{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;color:var(--text-primary)}.al-date{font-size:12px;color:var(--text-secondary)}.al-header-actions{display:flex;gap:8px}.al-header-actions button{display:inline-flex;align-items:center;gap:4px}.al-view-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--background-primary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-view-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s}.al-view-tab:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-view-tab.active{background:var(--interactive-accent);color:#fff}.al-view-tab span:first-child{font-size:16px}.al-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}.al-main{padding:16px 24px;gap:16px;overflow-y:auto}.al-main-full{padding:16px 24px;gap:16px;overflow-y:auto}
+      .al-dashboard{padding:0;height:100%;display:flex;flex-direction:column;overflow:hidden}.al-page{display:flex;flex-direction:column;height:100%;overflow:hidden}.al-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border-color);flex-shrink:0}.al-header-left{display:flex;flex-direction:column;gap:2px}.al-title{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;color:var(--text-primary)}.al-date{font-size:12px;color:var(--text-secondary)}.al-header-actions{display:flex;gap:8px}.al-header-actions button{display:inline-flex;align-items:center;gap:4px}.al-view-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--background-primary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-view-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s}.al-view-tab:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-view-tab.active{background:var(--interactive-accent);color:#fff}.al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center}.al-tab-icon svg{width:16px;height:16px}.al-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}.al-main{padding:16px 24px;gap:16px;overflow-y:auto}.al-main-full{padding:16px 24px;gap:16px;overflow-y:auto}
       .al-detail-view{flex:1;display:flex;flex-direction:column;overflow:hidden}.al-detail-header{display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-detail-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--text-secondary);transition:all .15s}.al-detail-icon:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-detail-title{display:flex;align-items:center;gap:12px;flex:1}.al-detail-title h2{font-size:20px;font-weight:600;color:var(--text-primary);margin:0}.al-detail-status{font-size:12px;padding:4px 12px;border-radius:12px;background:var(--text-green);color:#fff}.al-detail-status.status-completed{background:var(--text-muted)}.al-detail-status.status-cancelled{background:var(--text-red)}.al-detail-status.status-pending{background:var(--background-modifier-border);color:var(--text-secondary)}.al-detail-status.status-in-progress{background:var(--text-blue);color:#fff}.al-detail-content{flex:1;display:flex;overflow:hidden}.al-detail-main{flex:1;padding:24px;overflow-y:auto}.al-detail-sidebar{width:300px;padding:24px;border-left:1px solid var(--border-color);background:var(--background-secondary);overflow-y:auto;flex-shrink:0}.al-detail-section{margin-bottom:24px}.al-detail-section h3{font-size:14px;font-weight:600;color:var(--text-secondary);margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-detail-info-grid{display:grid;gap:12px;margin-bottom:16px}.al-detail-info-item{display:flex;justify-content:space-between;align-items:center}.al-detail-info-label{font-size:13px;color:var(--text-secondary)}.al-detail-info-value{font-size:13px;color:var(--text-primary);font-weight:500}.al-detail-progress-row{display:flex;justify-content:space-between;align-items:center}.al-detail-progress{display:flex;align-items:center;gap:8px}.al-detail-progress .al-progress-bar{width:120px;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-detail-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-detail-stats{display:flex;gap:16px}.al-detail-stat{flex:1;display:flex;flex-direction:column;align-items:center;padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color)}.al-detail-stat-num{font-size:28px;font-weight:700;color:var(--text-primary)}.al-detail-stat-label{font-size:12px;color:var(--text-secondary);margin-top:4px}.al-detail-stat-success .al-detail-stat-num{color:var(--text-green)}.al-detail-tasks{display:flex;flex-direction:column;gap:8px}.al-detail-task{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-task:hover{border-color:var(--interactive-accent)}.al-detail-task-content{flex:1}.al-detail-task-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:4px}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary)}.al-detail-actions{display:flex;flex-direction:column;gap:8px;margin-bottom:24px}.al-detail-actions button,.al-action-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px}.al-action-btn-success{background:var(--text-green);color:#fff;border:none;border-radius:6px;cursor:pointer}.al-action-btn-danger{background:transparent;color:var(--text-red);border:1px solid var(--text-red);border-radius:6px;cursor:pointer}.al-task-actions{display:flex;flex-direction:column;gap:8px}.al-task-goal-card{padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-task-goal-card:hover{border-color:var(--interactive-accent)}.al-task-goal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-task-goal-progress{display:flex;align-items:center;gap:8px}.al-task-goal-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-task-goal-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-task-goal-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}
       .al-table-view{flex:1;padding:16px;overflow:auto}.al-table-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-table{width:100%;border-collapse:collapse;background:var(--background-secondary);border-radius:10px;overflow:hidden}.al-table th{text-align:left;padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}.al-table td{padding:12px 16px;border-bottom:1px solid var(--border-color);font-size:13px;color:var(--text-primary)}.al-table-row:hover{background:var(--background-modifier-hover);cursor:pointer}.al-table-row.completed td{color:var(--text-muted)}.al-table-row.completed .al-table-title{text-decoration:line-through}.al-table-title{font-weight:600}.al-goal-tag{font-weight:500;font-size:12px;cursor:pointer}.al-goal-tag:hover{text-decoration:underline}.al-status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}.al-status-badge.status-pending,.al-status-badge.status-active{background:var(--interactive-accent);color:#fff}.al-status-badge.status-in-progress{background:color-mix(in srgb,var(--text-blue) 20%,transparent);color:var(--text-blue)}.al-status-badge.status-completed{background:color-mix(in srgb,var(--text-green) 20%,transparent);color:var(--text-green)}.al-status-badge.status-abandoned,.al-status-badge.status-cancelled{background:var(--background-modifier-border);color:var(--text-muted)}.al-level-dot{width:10px;height:10px;border-radius:50%;display:inline-block}.al-progress-text{font-weight:500}
-      .al-board-header{display:flex;justify-content:flex-end;padding:12px 16px 0;border-bottom:1px solid var(--border-color)}.al-board-group-selector{display:flex;align-items:center;gap:8px}.al-board-group-label{font-size:13px;color:var(--text-secondary)}.al-board-group-select{padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:13px;cursor:pointer}.al-board-group-select:hover{border-color:var(--interactive-accent)}.al-board-view{display:flex;flex-direction:row;flex:1;gap:12px;padding:16px;overflow-x:auto;min-height:0;background:var(--background-primary);align-items:stretch}.al-board-empty{display:flex;justify-content:center;align-items:center;width:100%}.al-board-column{flex:0 0 260px;display:flex;flex-direction:column;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;max-height:100%}.al-board-column-header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:2px solid var(--column-accent,var(--interactive-accent));background:var(--background-primary);flex-shrink:0}.al-board-column-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);overflow:visible;flex-wrap:wrap;white-space:nowrap}.al-board-column-body{flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:150px}.al-level-badge{font-size:12px;padding:3px 10px;border-radius:6px;color:#fff;font-weight:600;white-space:nowrap}.al-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.al-goal-card{padding:14px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:grab;transition:all .15s;margin-bottom:8px}.al-goal-card:hover{border-color:var(--interactive-accent);box-shadow:0 2px 8px rgba(0,0,0,0.1)}.al-goal-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:10px;line-height:1.3}.al-goal-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:10px}.al-goal-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-goal-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-goal-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-goal-card-meta{display:flex;gap:12px;font-size:12px;color:var(--text-muted)}.al-goal-card.dragging{opacity:0.3;cursor:grabbing}.drag-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:0.9;transform:rotate(2deg);box-shadow:0 8px 24px rgba(0,0,0,0.2)}.al-board-column.drop-target{border:2px dashed var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 10%,transparent)}
+      .al-board-group-label{font-size:12px;color:var(--text-secondary)}.al-board-view{display:flex;flex-direction:row;flex:1;gap:12px;padding:16px;overflow-x:auto;min-height:0;background:var(--background-primary);align-items:stretch}.al-board-empty{display:flex;justify-content:center;align-items:center;width:100%}.al-board-column{flex:0 0 260px;display:flex;flex-direction:column;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;max-height:100%}.al-board-column-header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:2px solid var(--column-accent,var(--interactive-accent));background:var(--background-primary);flex-shrink:0}.al-board-column-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);overflow:visible;flex-wrap:wrap;white-space:nowrap}.al-board-column-body{flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:150px}.al-level-badge{font-size:12px;padding:3px 10px;border-radius:6px;color:#fff;font-weight:600;white-space:nowrap}.al-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.al-goal-card{padding:14px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:grab;transition:all .15s;margin-bottom:8px}.al-goal-card:hover{border-color:var(--interactive-accent);box-shadow:0 2px 8px rgba(0,0,0,0.1)}.al-goal-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:10px;line-height:1.3}.al-goal-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:10px}.al-goal-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-goal-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-goal-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-goal-card-meta{display:flex;gap:12px;font-size:12px;color:var(--text-muted)}.al-goal-card.dragging{opacity:0.3;cursor:grabbing}.drag-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:0.9;transform:rotate(2deg);box-shadow:0 8px 24px rgba(0,0,0,0.2)}.al-board-column.drop-target{border:2px dashed var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 10%,transparent)}
       .al-gallery-view{flex:1;padding:16px;overflow-y:auto}.al-gallery-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-gallery-section{margin-bottom:24px}.al-gallery-section-title{font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}.al-gallery-card{position:relative;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);padding:16px;transition:all .2s;cursor:pointer}.al-gallery-card:hover{border-color:var(--interactive-accent);box-shadow:0 4px 12px rgba(0,0,0,.1);transform:translateY(-2px)}.al-gallery-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.al-gallery-card-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:12px;line-height:1.4}.al-gallery-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-gallery-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-gallery-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent);border-radius:3px}.al-gallery-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-gallery-card-meta{font-size:11px;color:var(--text-secondary)}.al-gallery-card-tasks{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color);font-size:12px;color:var(--text-secondary)}
       .al-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:12px;margin:16px 0}.al-stat{flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding:20px 16px;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color)}.al-stat-warning{border-color:var(--text-red);background:color-mix(in srgb,var(--text-red) 5%,var(--background-secondary))}.al-stat-num{font-size:32px;font-weight:700;color:var(--text-primary);line-height:1}.al-stat-label{font-size:12px;color:var(--text-secondary);margin-top:8px}
       .al-panel{flex-shrink:0;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;margin:16px 0}.al-panel-overdue{border-color:var(--text-red);background:color-mix(in srgb,var(--text-red) 3%,var(--background-secondary))}.al-panel-header{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--border-color);background:var(--background-primary);flex-shrink:0}.al-panel-header span:first-child{font-size:16px}.al-panel-header span:nth-child(2){font-size:14px;font-weight:500;color:var(--text-primary)}.al-panel-count{margin-left:auto;font-size:12px;padding:2px 8px;background:var(--background-secondary);color:var(--text-secondary);border-radius:10px}.al-count-overdue{background:color-mix(in srgb,var(--text-red) 15%,transparent);color:var(--text-red)}.al-panel-body{max-height:300px;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
@@ -1456,15 +1505,18 @@ export class DashboardView extends ItemView {
       .al-goal{padding:12px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-goal:hover{border-color:var(--interactive-accent)}.al-goal-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}.al-goal-level{font-size:11px;padding:2px 6px;border-radius:4px;background:var(--interactive-accent);color:#fff}.al-goal-level[data-level="1"]{background:var(--text-purple)}.al-goal-level[data-level="2"]{background:var(--text-blue)}.al-goal-level[data-level="3"]{background:var(--interactive-accent)}.al-goal-level[data-level="4"]{background:var(--text-green)}.al-goal-status{font-size:10px;padding:2px 6px;border-radius:4px;background:var(--text-green);color:#fff}.al-goal-status.completed{background:var(--text-muted)}.al-goal-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:8px}.al-goal-progress{display:flex;align-items:center;gap:8px}.al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-progress-fill{height:100%;background:var(--interactive-accent);border-radius:3px;transition:width .3s}
       .al-task{display:flex;align-items:flex-start;gap:10px;padding:12px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:background .15s;margin-bottom:8px}.al-task:last-child{margin-bottom:0}.al-task:hover{background:var(--background-modifier-hover)}.al-task-check{width:18px;height:18px;border:2px solid var(--border-color);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;flex-shrink:0;margin-top:3px;cursor:pointer}.al-task-check.checked{background:var(--text-green);border-color:var(--text-green)}.al-task-content{flex:1;min-width:0}.al-task-title{font-size:15px;font-weight:600;color:var(--text-primary);margin-bottom:8px;line-height:1.3}.al-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-task-meta{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--text-secondary)}.al-field-row{display:flex;align-items:center;gap:8px}.al-field-label{color:var(--text-muted);min-width:32px}.al-field-value{color:var(--text-primary)}.al-task-due{color:var(--text-red)}
       .al-quick-btn{display:flex;align-items:center;gap:8px;padding:10px 12px;width:100%;text-align:left}.al-quick-btn span:first-child{font-size:18px}.al-quick-btn span:last-child{font-size:13px;color:var(--text-secondary)}
-      .al-modal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:flex;align-items:center;justify-content:center}.al-modal-bg{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5)}.al-modal-box{position:relative;background:var(--background-primary);border-radius:12px;width:90%;max-width:420px;border:1px solid var(--border-color);box-shadow:0 10px 40px rgba(0,0,0,.3);overflow:hidden}.al-modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);font-size:16px;font-weight:600;color:var(--text-primary)}.al-modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-secondary);line-height:1}#al-goal-form,#al-task-form{padding:20px}.al-form-item{margin-bottom:16px}.al-form-item label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--text-secondary)}.al-form-item input,.al-form-item select{width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--background-secondary);color:var(--text-primary);box-sizing:border-box}.al-form-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}.al-view-spacer{flex:1}.al-view-settings-btn{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s;margin-left:auto}.al-view-settings-btn:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-field-settings-modal{max-width:480px}.al-field-settings-modal .al-modal-body{padding:20px}.al-field-settings-desc{font-size:13px;color:var(--text-secondary);margin:0 0 16px}.al-field-toggles{display:flex;flex-wrap:wrap;gap:8px}.al-field-toggle-btn{padding:8px 14px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;transition:all .15s}.al-field-toggle-btn:hover{border-color:var(--interactive-accent)}.al-field-toggle-btn.selected{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-modal-footer{display:flex;justify-content:flex-end;gap:10px;padding:16px 20px;border-top:1px solid var(--border-color)}.al-btn{padding:8px 16px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px}.al-btn:hover{background:var(--background-modifier-hover)}
+      .al-modal{position:fixed;top:0;left:0;right:0;bottom:0;z-index:1000;display:flex;align-items:center;justify-content:center}.al-modal-bg{position:absolute;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5)}.al-modal-box{position:relative;background:var(--background-primary);border-radius:12px;width:90%;max-width:420px;border:1px solid var(--border-color);box-shadow:0 10px 40px rgba(0,0,0,.3);overflow:hidden}.al-modal-header{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border-color);font-size:16px;font-weight:600;color:var(--text-primary)}.al-modal-close{background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-secondary);line-height:1}#al-goal-form,#al-task-form{padding:20px}.al-form-item{margin-bottom:16px}.al-form-item label{display:block;margin-bottom:6px;font-size:13px;font-weight:500;color:var(--text-secondary)}.al-form-item input,.al-form-item select{width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--background-secondary);color:var(--text-primary);box-sizing:border-box}.al-form-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:24px}.al-view-spacer{flex:1}.al-field-settings-modal{max-width:480px}.al-field-settings-modal .al-modal-body{padding:20px}.al-field-settings-desc{font-size:13px;color:var(--text-secondary);margin:0 0 16px}.al-field-toggles{display:flex;flex-wrap:wrap;gap:8px}.al-field-toggle-btn{padding:8px 14px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;transition:all .15s}.al-field-toggle-btn:hover{border-color:var(--interactive-accent)}.al-field-toggle-btn.selected{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-modal-footer{display:flex;justify-content:flex-end;gap:10px;padding:16px 20px;border-top:1px solid var(--border-color)}.al-btn{padding:8px 16px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px}.al-btn:hover{background:var(--background-modifier-hover)}
       @media(max-width:800px){.al-body{flex-direction:column}.al-sidebar{width:100%;max-width:none;border-left:none;border-top:1px solid var(--border-color);padding:16px}.al-header-actions{flex-wrap:wrap;gap:6px}.al-header-actions button{min-width:80px}.al-board-column{flex:0 0 220px}.al-detail-content{flex-direction:column}.al-detail-sidebar{width:100%;border-left:none;border-top:1px solid var(--border-color)}}
       @media(max-width:640px){.al-header{flex-direction:column;align-items:flex-start;gap:12px;padding:12px 16px}.al-view-tabs{padding:8px 12px;overflow-x:auto}.al-view-tab{padding:6px 12px;font-size:12px}.al-header-actions{width:100%;justify-content:stretch}.al-header-actions button{flex:1;min-width:0;justify-content:center;gap:4px;font-size:11px}.al-main{padding:12px;gap:12px}.al-stats{grid-template-columns:repeat(2,1fr);gap:8px}.al-stat{padding:12px}.al-stat-num{font-size:24px}.al-detail-header{flex-wrap:wrap;padding:12px 16px}.al-detail-title h2{font-size:16px}.al-detail-main{padding:16px}.al-detail-stats{flex-wrap:wrap}.al-detail-stat{min-width:80px}.al-board-view{padding:8px;gap:8px}.al-board-column{flex:0 0 180px}.al-gallery-view{padding:12px}.al-gallery-grid{grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:8px}.al-gallery-card{padding:12px}.al-gallery-card-title{font-size:13px}}
       .al-calendar-body{padding:0}.al-calendar-modes{display:flex;gap:4px;padding:8px;border-bottom:1px solid var(--border-color)}.al-calendar-mode-btn{padding:4px 10px;border:1px solid var(--border-color);border-radius:4px;background:transparent;color:var(--text-secondary);cursor:pointer;font-size:12px;transition:all .15s}.al-calendar-mode-btn:hover{color:var(--text-primary);border-color:var(--interactive-accent)}.al-calendar-mode-btn.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-calendar-content{padding:8px;min-width:280px;overflow-x:auto}.al-calendar-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.al-calendar-nav button{background:none;border:none;cursor:pointer;color:var(--text-secondary);padding:4px 8px;border-radius:4px}.al-calendar-nav button:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-calendar-title{font-size:13px;font-weight:500;color:var(--text-primary)}
       .al-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;min-width:280px}.al-cal-day-header{font-size:11px;color:var(--text-secondary);padding:4px}.al-cal-day{font-size:12px;padding:6px;border-radius:4px;cursor:pointer;transition:all .15s;color:var(--text-primary)}.al-cal-day:hover{background:var(--background-modifier-hover)}.al-cal-day.empty{background:transparent;cursor:default}.al-cal-day.today{background:var(--interactive-accent);color:#fff}.al-cal-day.day-selected{background:var(--interactive-accent-faint,color-mix(in srgb,var(--interactive-accent) 20%,transparent));border:1px solid var(--interactive-accent)}.al-cal-day.today.day-selected{background:var(--interactive-accent);color:#fff}.al-cal-day.week-selected{background:var(--interactive-accent-faint,color-mix(in srgb,var(--interactive-accent) 20%,transparent));border:1px solid var(--interactive-accent)}.al-cal-day.today.week-selected{background:var(--interactive-accent);color:#fff}
       .al-cal-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;min-width:200px}.al-cal-month-item{padding:10px;text-align:center;border-radius:6px;border:1px solid var(--border-color);cursor:pointer;font-size:12px;color:var(--text-secondary);transition:all .15s}.al-cal-month-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-month-item.current{border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}.al-cal-month-item.selected{border-color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent);font-weight:600}
       .al-cal-year-display{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px 0;min-width:200px}.al-cal-year-item{padding:16px 8px;text-align:center;border-radius:8px;border:1px solid var(--border-color);cursor:pointer;font-size:16px;font-weight:600;color:var(--text-secondary);transition:all .15s}.al-cal-year-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-year-item.current{font-size:20px;border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}.al-cal-year-item.selected{border-color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent)}
-      .al-filter-bar{display:flex;gap:10px;padding:10px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);align-items:center;flex-wrap:wrap}.al-filter-toggle{padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-toggle:hover{border-color:var(--interactive-accent)}.al-filter-toggle.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-filter-btn{padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-btn:hover{border-color:var(--interactive-accent)}.al-filter-btn-danger{color:var(--text-red);border-color:var(--text-red)}.al-filter-btn-danger:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent)}.al-filter-count{padding:4px 10px;background:var(--interactive-accent);color:#fff;border-radius:10px;font-size:11px}.al-filter-saved{margin-left:auto}
+      .al-filter-bar{display:flex;gap:10px;padding:10px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);align-items:center;flex-wrap:wrap}.al-filter-toggle{padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-toggle:hover{border-color:var(--interactive-accent)}.al-filter-toggle.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-filter-btn{padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-btn:hover{border-color:var(--interactive-accent)}.al-filter-btn-danger{color:var(--text-red);border-color:var(--text-red)}.al-filter-btn-danger:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent)}.al-filter-count{padding:4px 10px;background:var(--interactive-accent);color:#fff;border-radius:10px;font-size:11px}.al-filter-spacer{flex:1}.al-filter-settings-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-secondary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-settings-btn:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-board-group-inline{display:flex;align-items:center;gap:6px}.al-filter-select{padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer}
       .al-filter-builder{padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color)}.al-filter-logic-row{display:flex;align-items:center;gap:8px;margin-bottom:12px}.al-filter-logic-label{font-size:12px;color:var(--text-secondary)}.al-filter-logic-btn{padding:4px 10px;border:1px solid var(--border-color);border-radius:4px;background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;transition:all .15s}.al-filter-logic-btn:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-filter-logic-btn.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-filter-conditions{display:flex;flex-direction:column;gap:8px}.al-filter-condition{display:flex;align-items:center;gap:8px;padding:8px;background:var(--background-secondary);border-radius:6px;border:1px solid var(--border-color)}.al-filter-field-select,.al-filter-operator-select,.al-filter-value-select{padding:6px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer}.al-filter-field-select:hover,.al-filter-operator-select:hover,.al-filter-value-select:hover{border-color:var(--interactive-accent)}.al-filter-value-input{padding:6px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--background-primary);color:var(--text-primary);font-size:12px;min-width:120px}.al-filter-value-input:hover{border-color:var(--interactive-accent)}.al-filter-value-input:focus{outline:none;border-color:var(--interactive-accent)}.al-filter-date-input{min-width:140px}.al-filter-no-value{padding:6px 8px;color:var(--text-muted);font-size:12px}.al-filter-remove-btn{width:24px;height:24px;border:none;border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;margin-left:auto}.al-filter-remove-btn:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent);color:var(--text-red)}.al-filter-add-btn{width:100%;padding:8px;margin-top:8px;border:1px dashed var(--border-color);border-radius:6px;background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-add-btn:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 5%,transparent)}
+      .al-board-column-footer{padding:8px;border-top:1px dashed var(--border-color)}.al-add-goal-btn{display:flex;align-items:center;justify-content:center;gap:4px;padding:8px;border:1px dashed var(--border-color);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:12px;transition:all .15s}.al-add-goal-btn:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:var(--background-modifier-hover)}
+      .al-add-goal-link{display:block;padding:12px 16px;color:var(--text-muted);cursor:pointer;text-align:center;border-top:1px solid var(--border-color);font-size:13px;transition:all .15s}.al-add-goal-link:hover{color:var(--text-normal);background:var(--background-secondary)}
+      .al-gallery-add-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:120px;border:1px dashed var(--border-color);border-radius:10px;color:var(--text-muted);cursor:pointer;transition:all .15s}.al-gallery-add-card:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:var(--background-secondary)}.al-gallery-add-card .al-gallery-add-icon{font-size:28px;opacity:.5}.al-gallery-add-card:hover .al-gallery-add-icon{opacity:1}
     `;
     document.head.appendChild(style);
   }
