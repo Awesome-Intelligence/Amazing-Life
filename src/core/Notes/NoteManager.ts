@@ -3,6 +3,7 @@
  * Manages daily, weekly, monthly, yearly notes
  */
 
+import { TFile } from 'obsidian';
 import { FileStorage } from '../../storage/FileStorage';
 import { PluginSettings } from '../../types';
 
@@ -66,25 +67,28 @@ export class NoteManager {
   /**
    * 获取或创建今日日记
    */
-  async getOrCreateTodayNote(): Promise<string> {
+  async getOrCreateTodayNote(): Promise<TFile> {
     const today = this.getToday();
     return this.getOrCreateDailyNote(today);
   }
   
   /**
-   * 获取或创建指定日期的日记
+   * 获取或创建指定日期的日记，返回文件对象
    */
-  async getOrCreateDailyNote(date: Date | string): Promise<string> {
+  async getOrCreateDailyNote(date: Date | string): Promise<TFile> {
     const dateStr = typeof date === 'string' ? date : date.toISOString().split('T')[0];
-    const content = await this.getDailyNoteContent(dateStr);
+    const file = await this.storage.getDailyNote(dateStr);
     
-    if (content !== null) {
-      return content;
+    if (file) {
+      return file;
     }
     
     const newContent = this.generateDailyNoteTemplate(dateStr);
     await this.storage.createFile(this.storage.getDailyNotePath(dateStr), newContent);
-    return newContent;
+    // 返回新创建的文件
+    const newFile = await this.storage.getDailyNote(dateStr);
+    if (!newFile) throw new Error('Failed to create daily note');
+    return newFile;
   }
   
   /**
@@ -137,17 +141,19 @@ weekday: ${weekday}
   }
   
   /**
-   * 生成周记模板
+   * 获取或创建周记，返回文件对象
    */
-  async getOrCreateWeeklyNote(weekKey: string): Promise<string> {
+  async getOrCreateWeeklyNote(weekKey: string): Promise<TFile> {
     const file = await this.storage.getWeeklyNote(weekKey);
     if (file) {
-      return await this.storage.readFile(file.path) || '';
+      return file;
     }
     
     const content = this.generateWeeklyNoteTemplate(weekKey);
     await this.storage.createFile(`${this.settings.weeklyPath}/${weekKey}.md`, content);
-    return content;
+    const newFile = await this.storage.getWeeklyNote(weekKey);
+    if (!newFile) throw new Error('Failed to create weekly note');
+    return newFile;
   }
   
   private generateWeeklyNoteTemplate(weekKey: string): string {
@@ -175,17 +181,19 @@ SORT date DESC
   }
   
   /**
-   * 生成月记模板
+   * 获取或创建月记，返回文件对象
    */
-  async getOrCreateMonthlyNote(yearMonth: string): Promise<string> {
+  async getOrCreateMonthlyNote(yearMonth: string): Promise<TFile> {
     const file = await this.storage.getMonthlyNote(yearMonth);
     if (file) {
-      return await this.storage.readFile(file.path) || '';
+      return file;
     }
     
     const content = this.generateMonthlyNoteTemplate(yearMonth);
     await this.storage.createFile(`${this.settings.monthlyPath}/${yearMonth}.md`, content);
-    return content;
+    const newFile = await this.storage.getMonthlyNote(yearMonth);
+    if (!newFile) throw new Error('Failed to create monthly note');
+    return newFile;
   }
   
   private generateMonthlyNoteTemplate(yearMonth: string): string {
@@ -214,17 +222,19 @@ SORT date DESC
   }
   
   /**
-   * 生成年记模板
+   * 获取或创建年记，返回文件对象
    */
-  async getOrCreateYearlyNote(year: string): Promise<string> {
+  async getOrCreateYearlyNote(year: string): Promise<TFile> {
     const file = await this.storage.getYearlyNote(year);
     if (file) {
-      return await this.storage.readFile(file.path) || '';
+      return file;
     }
     
     const content = this.generateYearlyNoteTemplate(year);
     await this.storage.createFile(`${this.settings.yearlyPath}/${year}.md`, content);
-    return content;
+    const newFile = await this.storage.getYearlyNote(year);
+    if (!newFile) throw new Error('Failed to create yearly note');
+    return newFile;
   }
   
   private generateYearlyNoteTemplate(year: string): string {

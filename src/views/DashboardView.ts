@@ -705,6 +705,8 @@ export class DashboardView extends ItemView {
       const date = new Date(dateStr);
       const noteManager = this.plugin.getNoteManager();
       const file = await noteManager.getOrCreateDailyNote(date);
+      // 打开文件到新窗格
+      await this.plugin.app.workspace.getLeaf(true).openFile(file);
       new Notice(`已打开 ${dateStr} 日记`);
     } catch (error) {
       new Notice('打开日记失败');
@@ -718,7 +720,8 @@ export class DashboardView extends ItemView {
       const days = Math.floor((weekStart.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
       const weekNumber = Math.ceil((days + startOfYear.getDay() + 1) / 7);
       const weekKey = `${weekStart.getFullYear()}-W${weekNumber.toString().padStart(2, '0')}`;
-      await this.plugin.getNoteManager().getOrCreateWeeklyNote(weekKey);
+      const file = await this.plugin.getNoteManager().getOrCreateWeeklyNote(weekKey);
+      await this.plugin.app.workspace.getLeaf(true).openFile(file);
       new Notice(`已打开 ${weekKey} 周记`);
     } catch (error) {
       new Notice('打开周记失败');
@@ -727,7 +730,8 @@ export class DashboardView extends ItemView {
   
   private async openMonthlyNoteByDate(yearMonth: string): Promise<void> {
     try {
-      await this.plugin.getNoteManager().getOrCreateMonthlyNote(yearMonth);
+      const file = await this.plugin.getNoteManager().getOrCreateMonthlyNote(yearMonth);
+      await this.plugin.app.workspace.getLeaf(true).openFile(file);
       new Notice(`已打开 ${yearMonth} 月记`);
     } catch (error) {
       new Notice('打开月记失败');
@@ -736,7 +740,8 @@ export class DashboardView extends ItemView {
   
   private async openYearlyNoteByDate(year: string): Promise<void> {
     try {
-      await this.plugin.getNoteManager().getOrCreateYearlyNote(year);
+      const file = await this.plugin.getNoteManager().getOrCreateYearlyNote(year);
+      await this.plugin.app.workspace.getLeaf(true).openFile(file);
       new Notice(`已打开 ${year} 年记`);
     } catch (error) {
       new Notice('打开年记失败');
