@@ -212,6 +212,34 @@ export class DashboardView extends ItemView {
     }
   }
   
+  // 复制标签
+  private async duplicateTab(tabId: string): Promise<void> {
+    const tabs = this.getViewTabs();
+    const originalTab = tabs.find(t => t.id === tabId);
+    if (!originalTab) return;
+    
+    const newTab: ViewTab = {
+      id: this.generateTabId(),
+      name: originalTab.name + ' (副本)',
+      type: originalTab.type,
+      groupBy: originalTab.groupBy,
+      filters: [...(originalTab.filters || [])],
+      filterLogic: originalTab.filterLogic || 'and'
+    };
+    
+    tabs.push(newTab);
+    const settings = this.plugin.getSettings();
+    settings.viewTabs = tabs;
+    settings.activeTabId = newTab.id;
+    await this.plugin.saveSettings();
+    
+    this.currentView = newTab.type;
+    this.tempFilterConditions = [...newTab.filters];
+    this.tempFilterLogic = newTab.filterLogic;
+    this.render();
+    new Notice('视图已复制');
+  }
+  
   // 显示标签上下文菜单（长按触发）
   private showTabContextMenu(nameEl: HTMLElement, tabId: string): void {
     const rect = nameEl.getBoundingClientRect();
@@ -222,14 +250,18 @@ export class DashboardView extends ItemView {
     const menu = document.createElement('div');
     menu.className = 'al-tab-context-menu show';
     menu.innerHTML = `
-      <button class="al-tab-context-option" data-action="rename">
+      <div class="al-tab-context-option" data-action="duplicate">
+        <span class="al-tab-icon" data-icon="copy"></span>
+        <span>复制视图</span>
+      </div>
+      <div class="al-tab-context-option" data-action="rename">
         <span class="al-tab-icon" data-icon="pencil"></span>
         <span>重命名</span>
-      </button>
-      <button class="al-tab-context-option" data-action="close">
-        <span class="al-tab-icon" data-icon="x"></span>
-        <span>关闭</span>
-      </button>
+      </div>
+      <div class="al-tab-context-option al-tab-context-option-danger" data-action="delete">
+        <span class="al-tab-icon" data-icon="trash-2"></span>
+        <span>删除视图</span>
+      </div>
     `;
     
     menu.style.left = rect.left + 'px';
@@ -252,10 +284,13 @@ export class DashboardView extends ItemView {
       opt.addEventListener('click', async (e) => {
         e.stopPropagation();
         const action = (opt as HTMLElement).getAttribute('data-action');
-        if (action === 'rename') {
+        if (action === 'duplicate') {
+          menu.remove();
+          await this.duplicateTab(tabId);
+        } else if (action === 'rename') {
           menu.remove();
           this.editTabName(nameEl, tabId);
-        } else if (action === 'close') {
+        } else if (action === 'delete') {
           menu.remove();
           this.removeTab(tabId);
         }
@@ -1275,35 +1310,37 @@ export class DashboardView extends ItemView {
     });
     
     // 标签页右键菜单（桌面端）和长按菜单（移动端）
-    content.querySelectorAll('.al-tab-name').forEach(nameEl => {
+    content.querySelectorAll('.al-view-tab[data-tab-id]').forEach(tabEl => {
       // 右键菜单
-      nameEl.addEventListener('contextmenu', (e) => {
+      tabEl.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        const tabId = (nameEl as HTMLElement).getAttribute('data-tab-id');
+        const tabId = (tabEl as HTMLElement).getAttribute('data-tab-id');
         if (tabId) {
-          this.showTabContextMenu(nameEl as HTMLElement, tabId);
+          const nameEl = tabEl.querySelector('.al-tab-name') as HTMLElement;
+          this.showTabContextMenu(nameEl || tabEl, tabId);
         }
       });
       
       // 长按弹出菜单（移动端）
       let longPressTimer: number | null = null;
-      nameEl.addEventListener('touchstart', (e) => {
+      tabEl.addEventListener('touchstart', (e) => {
         longPressTimer = window.setTimeout(() => {
-          const tabId = (nameEl as HTMLElement).getAttribute('data-tab-id');
+          const tabId = (tabEl as HTMLElement).getAttribute('data-tab-id');
           if (tabId) {
-            this.showTabContextMenu(nameEl as HTMLElement, tabId);
+            const nameEl = tabEl.querySelector('.al-tab-name') as HTMLElement;
+            this.showTabContextMenu(nameEl || tabEl, tabId);
           }
         }, 500);
       });
       
-      nameEl.addEventListener('touchend', () => {
+      tabEl.addEventListener('touchend', () => {
         if (longPressTimer) {
           clearTimeout(longPressTimer);
           longPressTimer = null;
         }
       });
       
-      nameEl.addEventListener('touchcancel', () => {
+      tabEl.addEventListener('touchcancel', () => {
         if (longPressTimer) {
           clearTimeout(longPressTimer);
           longPressTimer = null;
@@ -1854,9 +1891,18 @@ export class DashboardView extends ItemView {
     const dropdown = document.createElement('div');
     dropdown.className = 'al-add-view-dropdown show';
     dropdown.innerHTML = `
-      <button class="al-add-view-option" data-type="list"><span class="al-tab-icon" data-icon="list"></span><span>列表视图</span></button>
-      <button class="al-add-view-option" data-type="board"><span class="al-tab-icon" data-icon="columns"></span><span>看板视图</span></button>
-      <button class="al-add-view-option" data-type="gallery"><span class="al-tab-icon" data-icon="gallery-horizontal"></span><span>画廊视图</span></button>
+      <div class="al-add-view-option" data-type="list">
+        <span class="al-tab-icon" data-icon="list"></span>
+        <span>列表视图</span>
+      </div>
+      <div class="al-add-view-option" data-type="board">
+        <span class="al-tab-icon" data-icon="columns"></span>
+        <span>看板视图</span>
+      </div>
+      <div class="al-add-view-option" data-type="gallery">
+        <span class="al-tab-icon" data-icon="gallery-horizontal"></span>
+        <span>画廊视图</span>
+      </div>
     `;
     
     // 设置位置
@@ -2224,7 +2270,7 @@ export class DashboardView extends ItemView {
     const style = document.createElement('style');
     style.id = 'al-dashboard-styles';
     style.textContent = `
-      .al-dashboard{padding:0;height:100%;display:flex;flex-direction:column;overflow:hidden}.al-page{display:flex;flex-direction:column;height:100%;overflow:hidden}.al-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border-color);flex-shrink:0}.al-header-left{display:flex;flex-direction:column;gap:2px}.al-title{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;color:var(--text-primary)}.al-date{font-size:12px;color:var(--text-secondary)}.al-header-actions{display:flex;gap:8px}.al-header-actions button{display:inline-flex;align-items:center;gap:4px}.al-view-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--background-primary);border-bottom:1px solid var(--border-color);flex-shrink:0;overflow-x:auto;position:relative;z-index:999}.al-view-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s;position:relative;white-space:nowrap}.al-view-tab:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-view-tab.active{background:var(--interactive-accent);color:#fff}.al-tab-name{margin-right:4px}.al-tab-name-edit{border:1px solid var(--interactive-accent);border-radius:4px;padding:4px 8px;background:var(--background-primary);color:var(--text-primary);font-size:13px;outline:none;min-width:60px;max-width:150px;box-shadow:0 0 0 2px color-mix(in srgb,var(--interactive-accent) 30%,transparent)}.al-tab-context-menu{display:none;position:fixed;top:0;left:0;background:var(--background-primary);border:1px solid var(--border-color);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:100000;min-width:160px;padding:4px}.al-tab-context-menu.show{display:block}.al-tab-context-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;border:none;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;text-align:left;border-radius:4px;line-height:1.5}.al-tab-context-option:hover{background:var(--background-modifier-hover)}.al-tab-context-option .al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0}.al-tab-context-option:hover .al-tab-icon{color:var(--text-primary)}.al-view-tab-add{padding:8px 12px;opacity:0.6;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center}.al-view-tab-add:hover{opacity:1;background:var(--background-modifier-hover);color:var(--text-primary)}.al-add-view-dropdown{display:none;position:fixed;top:0;left:0;background:var(--background-primary);border:1px solid var(--border-color);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:100000;min-width:160px;padding:4px}.al-add-view-dropdown.show{display:block}.al-add-view-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;border:none;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;text-align:left;border-radius:4px;line-height:1.5}.al-add-view-option:hover{background:var(--background-modifier-hover)}.al-add-view-option .al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0}.al-add-view-option:hover .al-tab-icon{color:var(--text-primary)}.al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center}.al-tab-icon svg{width:16px;height:16px}.al-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}.al-main{padding:16px 24px;gap:16px;overflow-y:auto}.al-main-full{padding:16px 24px;gap:16px;overflow-y:auto}
+      .al-dashboard{padding:0;height:100%;display:flex;flex-direction:column;overflow:hidden}.al-page{display:flex;flex-direction:column;height:100%;overflow:hidden}.al-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border-color);flex-shrink:0}.al-header-left{display:flex;flex-direction:column;gap:2px}.al-title{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;color:var(--text-primary)}.al-date{font-size:12px;color:var(--text-secondary)}.al-header-actions{display:flex;gap:8px}.al-header-actions button{display:inline-flex;align-items:center;gap:4px}.al-view-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--background-primary);border-bottom:1px solid var(--border-color);flex-shrink:0;overflow-x:auto;position:relative;z-index:999}.al-view-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s;position:relative;white-space:nowrap}.al-view-tab:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-view-tab.active{background:var(--interactive-accent);color:#fff}.al-tab-name{margin-right:4px}.al-tab-name-edit{border:1px solid var(--interactive-accent);border-radius:4px;padding:4px 8px;background:var(--background-primary);color:var(--text-primary);font-size:13px;outline:none;min-width:60px;max-width:150px;box-shadow:0 0 0 2px color-mix(in srgb,var(--interactive-accent) 30%,transparent)}.al-tab-context-menu{display:none;position:fixed;top:0;left:0;background:var(--background-primary);border:1px solid var(--border-color);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:100000;min-width:160px;padding:4px}.al-tab-context-menu.show{display:block}.al-tab-context-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;color:var(--text-primary);cursor:pointer;font-size:13px;text-align:left;line-height:1.5}.al-tab-context-option:hover{background:var(--background-modifier-hover)}.al-tab-context-option .al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0}.al-tab-context-option:hover .al-tab-icon{color:var(--text-primary)}.al-tab-context-option.al-tab-context-option-danger{color:var(--text-red)!important}.al-tab-context-option.al-tab-context-option-danger .al-tab-icon{color:var(--text-red)!important}.al-tab-context-option.al-tab-context-option-danger .al-tab-icon svg{color:var(--text-red)!important;fill:var(--text-red)!important;stroke:var(--text-red)!important}.al-view-tab-add{padding:8px 12px;opacity:0.6;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center}.al-view-tab-add:hover{opacity:1;background:var(--background-modifier-hover);color:var(--text-primary)}.al-add-view-dropdown{display:none;position:fixed;top:0;left:0;background:var(--background-primary);border:1px solid var(--border-color);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:100000;min-width:160px;padding:4px}.al-add-view-dropdown.show{display:block}.al-add-view-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;color:var(--text-primary);cursor:pointer;font-size:13px;text-align:left;line-height:1.5}.al-add-view-option:hover{background:var(--background-modifier-hover)}.al-add-view-option .al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0}.al-add-view-option:hover .al-tab-icon{color:var(--text-primary)}.al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center}.al-tab-icon svg{width:16px;height:16px}.al-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}.al-main{padding:16px 24px;gap:16px;overflow-y:auto}.al-main-full{padding:16px 24px;gap:16px;overflow-y:auto}
       .al-detail-view{flex:1;display:flex;flex-direction:column;overflow:hidden}.al-detail-header{display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-detail-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--text-secondary);transition:all .15s}.al-detail-icon:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-detail-title{display:flex;align-items:center;gap:12px;flex:1}.al-detail-title h2{font-size:20px;font-weight:600;color:var(--text-primary);margin:0}.al-detail-content{flex:1;display:flex;overflow:hidden}.al-detail-main{flex:1;padding:24px;overflow-y:auto}.al-detail-section{margin-bottom:24px}.al-detail-section h3{font-size:14px;font-weight:600;color:var(--text-secondary);margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-detail-progress-section{margin-bottom:20px;padding:16px;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color)}.al-detail-progress-label{font-size:13px;color:var(--text-secondary);margin-bottom:8px}.al-detail-progress-large{display:flex;align-items:center;gap:12px}.al-progress-bar-large{flex:1;height:12px;background:var(--background-modifier-border);border-radius:6px;overflow:hidden}.al-progress-fill-large{height:100%;background:var(--interactive-accent);border-radius:6px;transition:width .3s}.al-detail-progress-value{font-size:16px;font-weight:700;color:var(--text-primary);min-width:48px;text-align:right}.al-detail-description-section{margin-bottom:20px}.al-detail-action-row{display:flex;align-items:center;gap:10px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-action-row:hover{border-color:var(--interactive-accent);background:var(--background-modifier-hover)}.al-detail-action-row-add{background:color-mix(in srgb,var(--interactive-accent) 10%,transparent);border-color:var(--interactive-accent);border-style:dashed}.al-detail-action-row-add:hover{background:color-mix(in srgb,var(--interactive-accent) 15%,transparent);border-style:solid}.al-detail-action-icon{font-size:18px}.al-detail-action-text{font-size:14px;color:var(--text-secondary);flex:1;text-align:left}.al-detail-stats{display:flex;gap:16px}.al-detail-stat{flex:1;display:flex;flex-direction:column;align-items:center;padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color)}.al-detail-stat-num{font-size:28px;font-weight:700;color:var(--text-primary)}.al-detail-stat-label{font-size:12px;color:var(--text-secondary);margin-top:4px}.al-detail-stat-success .al-detail-stat-num{color:var(--text-green)}.al-detail-tasks{display:flex;flex-direction:column;gap:8px}.al-detail-task{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-task:hover{border-color:var(--interactive-accent)}.al-detail-task-content{flex:1}.al-detail-task-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:4px}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary)}.al-action-btn-success{background:var(--text-green);color:#fff;border:none;border-radius:6px;cursor:pointer}.al-action-btn-danger{background:transparent;color:var(--text-red);border:1px solid var(--text-red);border-radius:6px;cursor:pointer}.al-task-actions{display:flex;flex-direction:column;gap:8px}.al-task-goal-card{padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-task-goal-card:hover{border-color:var(--interactive-accent)}.al-task-goal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-task-goal-progress{display:flex;align-items:center;gap:8px}.al-task-goal-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-task-goal-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-task-goal-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}
       .al-table-view{flex:1;padding:16px;overflow:auto}.al-table-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-table{width:100%;border-collapse:collapse;background:var(--background-secondary);border-radius:10px;overflow:hidden}.al-table th{text-align:left;padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}.al-table td{padding:12px 16px;border-bottom:1px solid var(--border-color);font-size:13px;color:var(--text-primary)}.al-table-row:hover{background:var(--background-modifier-hover);cursor:pointer}.al-table-row.completed td{color:var(--text-muted)}.al-table-row.completed .al-table-title{text-decoration:line-through}.al-table-title{font-weight:600}.al-goal-tag{font-weight:500;font-size:12px;cursor:pointer}.al-goal-tag:hover{text-decoration:underline}.al-status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}.al-status-badge.status-pending,.al-status-badge.status-active{background:var(--interactive-accent);color:#fff}.al-status-badge.status-in-progress{background:color-mix(in srgb,var(--text-blue) 20%,transparent);color:var(--text-blue)}.al-status-badge.status-completed{background:color-mix(in srgb,var(--text-green) 20%,transparent);color:var(--text-green)}.al-status-badge.status-abandoned,.al-status-badge.status-cancelled{background:var(--background-modifier-border);color:var(--text-muted)}.al-level-dot{width:10px;height:10px;border-radius:50%;display:inline-block}.al-progress-text{font-weight:500}
       .al-board-group-label{font-size:12px;color:var(--text-secondary)}.al-board-view{display:flex;flex-direction:row;flex:1;gap:12px;padding:16px;overflow-x:auto;min-height:0;background:var(--background-primary);align-items:stretch}.al-board-empty{display:flex;justify-content:center;align-items:center;width:100%}.al-board-column{flex:0 0 260px;display:flex;flex-direction:column;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;max-height:100%}.al-board-column-header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:2px solid var(--column-accent,var(--interactive-accent));background:var(--background-primary);flex-shrink:0}.al-board-column-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);overflow:visible;flex-wrap:wrap;white-space:nowrap}.al-board-column-body{flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:150px}.al-level-badge{font-size:12px;padding:3px 10px;border-radius:6px;color:#fff;font-weight:600;white-space:nowrap}.al-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.al-goal-card{padding:14px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:grab;transition:all .15s;margin-bottom:8px}.al-goal-card:hover{border-color:var(--interactive-accent);box-shadow:0 2px 8px rgba(0,0,0,0.1)}.al-goal-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:10px;line-height:1.3}.al-goal-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:10px}.al-goal-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-goal-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-goal-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-goal-card-meta{display:flex;gap:12px;font-size:12px;color:var(--text-muted)}.al-goal-card.dragging{opacity:0.3;cursor:grabbing}.drag-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:0.9;transform:rotate(2deg);box-shadow:0 8px 24px rgba(0,0,0,0.2)}.al-board-column.drop-target{border:2px dashed var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 10%,transparent)}
