@@ -3,7 +3,7 @@
  */
 
 import { ItemView, Notice, TFile, setIcon } from 'obsidian';
-import { Goal, Task, GoalLevel, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FilterState, SavedFilterView, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS, ViewTab, ViewTabType, getDefaultViewTabs } from '../types';
+import { Goal, Task, GoalLevel, TaskStatus, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FilterState, SavedFilterView, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS, ViewTab, ViewTabType, getDefaultViewTabs } from '../types';
 import AmazingLife from '../main';
 
 export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
@@ -713,7 +713,7 @@ export class DashboardView extends ItemView {
     if (!goal) return `<div class="al-detail-view"><div class="al-empty">${this.renderEmpty('❌', '目标不存在', '')}</div></div>`;
     
     const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
+    const levelColors: Record<number, string> = { 1: '#8B5CF6', 2: '#3B82F6', 3: '#6366F1', 4: '#22C55E' };
     const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
     const goalTasks = this.getTasksByGoal(goalId);
     const pendingTasks = goalTasks.filter(t => t['A-status'] === 'pending');
@@ -722,6 +722,8 @@ export class DashboardView extends ItemView {
     const priorityNames = ['最高', '高', '中', '低', '最低'];
     const priorityColors = ['var(--text-red)', 'var(--text-orange)', 'var(--text-yellow)', 'var(--text-green)', 'var(--text-muted)'];
     
+    const parentGoal = goal['A-parent'] ? this.getGoal(goal['A-parent']) : null;
+    
     return `
       <div class="al-detail-view">
         <div class="al-detail-header">
@@ -729,66 +731,78 @@ export class DashboardView extends ItemView {
             <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
           </div>
           <div class="al-detail-title">
-            <span class="al-goal-level" data-level="${goal['A-level']}" style="background: ${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span>
             <h2>${goal['A-title']}</h2>
           </div>
-          <div class="al-detail-status ${goal['A-status']}">${statusNames[goal['A-status']]}</div>
         </div>
         <div class="al-detail-content">
           <div class="al-detail-main">
-            <div class="al-detail-section">
-              <h3>📊 目标信息</h3>
-              <div class="al-detail-info-grid">
-                <div class="al-detail-info-item"><span class="al-detail-info-label">创建时间</span><span class="al-detail-info-value">${goal['A-created']}</span></div>
-                ${goal['A-due'] ? `<div class="al-detail-info-item"><span class="al-detail-info-label">截止日期</span><span class="al-detail-info-value">${goal['A-due']}</span></div>` : ''}
+            <div class="al-detail-fields">
+              <div class="al-field-row" data-field="level" data-value="${goal['A-level']}">
+                <span class="al-field-icon">🎯</span>
+                <span class="al-field-label">目标层级</span>
+                <span class="al-field-value al-field-editable" data-field-type="select">${levelNames[goal['A-level']]}</span>
               </div>
-              <div class="al-detail-progress-row">
-                <span class="al-detail-info-label">完成进度</span>
-                <div class="al-detail-progress"><div class="al-progress-bar"><div class="al-progress-fill" style="width: ${goal['A-progress']}%"></div></div><span>${goal['A-progress']}%</span></div>
+              <div class="al-field-row" data-field="status" data-value="${goal['A-status']}">
+                <span class="al-field-icon">📊</span>
+                <span class="al-field-label">目标状态</span>
+                <span class="al-field-value al-field-editable" data-field-type="select">${statusNames[goal['A-status']]}</span>
               </div>
-            </div>
-            <div class="al-detail-section">
-              <h3>📈 任务统计</h3>
-              <div class="al-detail-stats">
-                <div class="al-detail-stat"><span class="al-detail-stat-num">${pendingTasks.length}</span><span class="al-detail-stat-label">待办</span></div>
-                <div class="al-detail-stat"><span class="al-detail-stat-num">${inProgressTasks.length}</span><span class="al-detail-stat-label">进行中</span></div>
-                <div class="al-detail-stat al-detail-stat-success"><span class="al-detail-stat-num">${completedTasks.length}</span><span class="al-detail-stat-label">已完成</span></div>
-              </div>
-            </div>
-            <div class="al-detail-section">
-              <h3>📋 关联任务 (${goalTasks.length})</h3>
-              ${goalTasks.length === 0 ? this.renderEmpty('📋', '暂无任务', '点击右侧添加任务') : `<div class="al-detail-tasks">${goalTasks.map(task => `
-                <div class="al-detail-task" data-task-id="${task['A-id']}">
-                  <div class="al-task-check ${task['A-status'] === 'completed' ? 'checked' : ''}" data-task-id="${task['A-id']}">${task['A-status'] === 'completed' ? '✓' : ''}</div>
-                  <div class="al-detail-task-content">
-                    <div class="al-detail-task-title ${task['A-status'] === 'completed' ? 'done' : ''}">${task['A-title']}</div>
-                    <div class="al-detail-task-meta">
-                      <span style="color: ${priorityColors[task['A-priority'] - 1]}">${priorityNames[task['A-priority'] - 1]}</span>
-                      <span class="al-status-badge status-${task['A-status']}">${['待办', '进行中', '已完成', '已取消'][['pending', 'in-progress', 'completed', 'cancelled'].indexOf(task['A-status'])]}</span>
-                      ${task['A-due'] ? `<span>📅 ${task['A-due']}</span>` : ''}
-                    </div>
+              <div class="al-field-row" data-field="progress" data-value="${goal['A-progress']}">
+                <span class="al-field-icon">📈</span>
+                <span class="al-field-label">完成进度</span>
+                <div class="al-field-value">
+                  <div class="al-progress-slider-container">
+                    <input type="range" class="al-progress-slider" min="0" max="100" value="${goal['A-progress']}" data-field="progress">
+                    <span class="al-progress-value">${goal['A-progress']}%</span>
                   </div>
+                </div>
+              </div>
+              <div class="al-field-row" data-field="start" data-value="${goal['A-start']}">
+                <span class="al-field-icon">📅</span>
+                <span class="al-field-label">开始时间</span>
+                <span class="al-field-value al-field-editable" data-field-type="date">${goal['A-start'] || '-'}</span>
+              </div>
+              <div class="al-field-row" data-field="due" data-value="${goal['A-due'] || ''}">
+                <span class="al-field-icon">⏰</span>
+                <span class="al-field-label">截止时间</span>
+                <span class="al-field-value al-field-editable" data-field-type="date">${goal['A-due'] || '-'}</span>
+              </div>
+              ${parentGoal ? `
+              <div class="al-field-row">
+                <span class="al-field-icon">🔗</span>
+                <span class="al-field-label">上级目标</span>
+                <span class="al-field-value al-field-link" data-goal-id="${parentGoal['A-id']}">${parentGoal['A-title']}</span>
+              </div>
+              ` : ''}
+
+            </div>
+            <div class="al-detail-description-block" data-field="description" data-value="${goal['A-description'] || ''}">
+              <div class="al-detail-description-header">
+                <span class="al-detail-description-icon">📝</span>
+                <span class="al-detail-description-title">目标描述</span>
+              </div>
+              <div class="al-detail-description-content al-field-editable" data-field-type="textarea">${goal['A-description'] || '添加描述...'}</div>
+            </div>
+            <div class="al-detail-tasks-block">
+              <div class="al-detail-tasks-header">
+                <span class="al-detail-tasks-icon">📋</span>
+                <span class="al-detail-tasks-title">关联任务</span>
+                <span class="al-detail-tasks-count">${goalTasks.length}</span>
+              </div>
+              <div class="al-detail-task-summary">
+                <span>待办 ${pendingTasks.length}</span>
+                <span>进行中 ${inProgressTasks.length}</span>
+                <span>已完成 ${completedTasks.length}</span>
+              </div>
+              ${goalTasks.length === 0 ? `<div class="al-detail-tasks-empty"><span class="al-empty-text">暂无任务，点击下方添加</span></div>` : `<div class="al-detail-tasks">${goalTasks.map(task => `
+                <div class="al-detail-task" data-task-id="${task['A-id']}">
+                  <input type="checkbox" class="task-list-item-checkbox" ${task['A-status'] === 'completed' ? 'checked' : ''} data-task-id="${task['A-id']}">
+                  <div class="al-detail-task-title ${task['A-status'] === 'completed' ? 'done' : ''}">${task['A-title']}</div>
+                  <div class="al-detail-task-priority" style="color: ${priorityColors[task['A-priority'] - 1]}">${['🔴', '🟠', '🟡', '🟢', '⚪'][task['A-priority'] - 1]} ${priorityNames[task['A-priority'] - 1]}</div>
                 </div>
               `).join('')}</div>`}
+              <div class="al-add-goal-link" id="al-add-task-to-goal">+ 添加任务</div>
             </div>
-          </div>
-          <div class="al-detail-sidebar">
-            <div class="al-detail-actions">
-              <button class="mod-cta" id="al-add-task-to-goal"><span>+</span><span>添加任务</span></button>
-            </div>
-            ${inProgressTasks.length > 0 ? `
-            <div class="al-detail-section">
-              <h3>🔄 进行中</h3>
-              <div class="al-detail-tasks">${inProgressTasks.map(task => `
-                <div class="al-detail-task" data-task-id="${task['A-id']}">
-                  <div class="al-task-check" data-task-id="${task['A-id']}"></div>
-                  <div class="al-detail-task-content">
-                    <div class="al-detail-task-title">${task['A-title']}</div>
-                    ${task['A-due'] ? `<div class="al-detail-task-meta"><span>📅 ${task['A-due']}</span></div>` : ''}
-                  </div>
-                </div>
-              `).join('')}</div>
-            </div>` : ''}
           </div>
         </div>
       </div>
@@ -1317,7 +1331,7 @@ export class DashboardView extends ItemView {
     content.querySelectorAll('.al-goal, .al-gallery-goal').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.navigateTo('goal-detail', goalId, null); } }); });
     
     // Task click events (in detail views) - 记录历史
-    content.querySelectorAll('.al-detail-task').forEach(el => { el.addEventListener('click', (e) => { const taskId = (e.currentTarget as HTMLElement).getAttribute('data-task-id'); if (taskId) { this.navigateTo('task-detail', null, taskId); } }); });
+    content.querySelectorAll('.al-detail-task').forEach(el => { el.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.task-list-item-checkbox')) { return; } const taskId = (e.currentTarget as HTMLElement).getAttribute('data-task-id'); if (taskId) { this.showTaskDetailModal(taskId); } }); });
     
     // Goal row click in list view - 记录历史
     content.querySelectorAll('.al-table-row[data-goal-id]').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.navigateTo('goal-detail', goalId, null); } }); });
@@ -1329,6 +1343,49 @@ export class DashboardView extends ItemView {
     content.querySelectorAll('.al-task-goal-card').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.navigateTo('goal-detail', goalId, null); } }); });
     
     content.querySelector('#al-add-task-to-goal')?.addEventListener('click', () => { if (this.selectedGoalId) this.showCreateTaskModalForGoal(this.selectedGoalId); });
+    
+    // 字段行内编辑事件
+    content.querySelectorAll('.al-field-row[data-field], .al-detail-description-block[data-field]').forEach(row => {
+      row.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        if (target.classList.contains('al-field-link')) return;
+        const field = row.getAttribute('data-field');
+        const value = row.getAttribute('data-value');
+        const fieldType = row.querySelector('.al-field-editable')?.getAttribute('data-field-type');
+        if (field && fieldType && this.selectedGoalId) {
+          this.startFieldEdit(row as HTMLElement, field, fieldType, value || '');
+        }
+      });
+    });
+    
+    // 上级目标点击事件
+    content.querySelectorAll('.al-field-link[data-goal-id]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id');
+        if (goalId) this.navigateTo('goal-detail', goalId, null);
+      });
+    });
+    
+    // 进度滑块事件
+    content.querySelectorAll('.al-progress-slider[data-field="progress"]').forEach(slider => {
+      const valueEl = slider.parentElement?.querySelector('.al-progress-value');
+      slider.addEventListener('input', (e) => {
+        const value = (e.target as HTMLInputElement).value;
+        if (valueEl) valueEl.textContent = `${value}%`;
+      });
+      slider.addEventListener('change', async (e) => {
+        const value = parseInt((e.target as HTMLInputElement).value);
+        if (this.selectedGoalId) {
+          try {
+            await this.plugin.getGoalManager().updateGoal(this.selectedGoalId, { progress: value });
+            new Notice('进度已更新');
+            this.loadAndRender();
+          } catch (error) {
+            new Notice('更新失败: ' + (error as Error).message);
+          }
+        }
+      });
+    });
     
     // 列表视图添加按钮
     content.querySelector('#al-list-add-goal')?.addEventListener('click', () => this.showCreateGoalModal());
@@ -1445,7 +1502,7 @@ export class DashboardView extends ItemView {
     content.querySelector('#al-delete-task-btn')?.addEventListener('click', async () => { if (this.selectedTaskId && confirm('确定要删除这个任务吗？')) { await this.plugin.getTaskManager().deleteTask(this.selectedTaskId); this.currentView = 'dashboard'; this.selectedTaskId = null; this.loadAndRender(); } });
     
     // Task checkbox clicks
-    content.querySelectorAll('.al-task-check').forEach(checkbox => { checkbox.addEventListener('click', async (e) => { e.stopPropagation(); const taskId = (e.target as HTMLElement).getAttribute('data-task-id'); if (taskId) { await this.toggleTaskStatus(taskId); } }); });
+    content.querySelectorAll('.task-list-item-checkbox[data-task-id]').forEach(checkbox => { checkbox.addEventListener('click', async (e) => { e.stopPropagation(); }); checkbox.addEventListener('change', async (e) => { e.stopPropagation(); const taskId = (e.target as HTMLInputElement).getAttribute('data-task-id'); if (taskId) { await this.toggleTaskStatus(taskId); } }); });
     
     // Field settings button
     content.querySelector('#al-open-field-settings')?.addEventListener('click', () => this.showFieldSettingsModal());
@@ -1928,6 +1985,106 @@ export class DashboardView extends ItemView {
     setTimeout(() => (modal.querySelector('#al-goal-title') as HTMLInputElement)?.focus(), 100);
   }
   
+  private showTaskDetailModal(taskId: string): void {
+    const task = this.getTask(taskId);
+    if (!task) { new Notice('任务不存在'); return; }
+    
+    const allGoals = this.plugin.getGoalManager().getAllGoals();
+    const goalOptions = allGoals.map(goal => `<option value="${goal['A-id']}" ${goal['A-id'] === task['A-goal'] ? 'selected' : ''}>${goal['A-title']}</option>`).join('');
+    const priorityOptions = [1, 2, 3, 4, 5].map(p => `<option value="${p}" ${p === task['A-priority'] ? 'selected' : ''}>${['🔴 最高', '🟠 高', '🟡 中', '🟢 低', '⚪ 最低'][p - 1]}</option>`).join('');
+    const statusOptions = ['pending', 'in-progress', 'completed', 'cancelled'].map(s => `<option value="${s}" ${s === task['A-status'] ? 'selected' : ''}>${['待办', '进行中', '已完成', '已取消'][['pending', 'in-progress', 'completed', 'cancelled'].indexOf(s)]}</option>`).join('');
+    
+    const modal = document.createElement('div');
+    modal.className = 'al-modal';
+    modal.innerHTML = `
+      <div class="al-modal-bg"></div>
+      <div class="al-modal-box al-modal-task-detail">
+        <div class="al-modal-header">
+          <span>📋 任务详情</span>
+          <button class="al-modal-close">×</button>
+        </div>
+        <div class="al-modal-body">
+          <div class="al-task-detail-title">
+            <input type="text" id="al-task-detail-title" value="${task['A-title']}" placeholder="任务名称">
+          </div>
+          <div class="al-task-detail-fields">
+            <div class="al-task-detail-field">
+              <label>📊 状态</label>
+              <select id="al-task-detail-status">${statusOptions}</select>
+            </div>
+            <div class="al-task-detail-field">
+              <label>⭐ 优先级</label>
+              <select id="al-task-detail-priority">${priorityOptions}</select>
+            </div>
+            <div class="al-task-detail-field">
+              <label>📅 开始时间</label>
+              <input type="date" id="al-task-detail-start" value="${task['A-start'] || ''}">
+            </div>
+            <div class="al-task-detail-field">
+              <label>⏰ 截止时间</label>
+              <input type="date" id="al-task-detail-due" value="${task['A-due'] || ''}">
+            </div>
+            <div class="al-task-detail-field">
+              <label>🎯 关联目标</label>
+              <select id="al-task-detail-goal"><option value="">无</option>${goalOptions}</select>
+            </div>
+          </div>
+          <div class="al-task-detail-desc-section">
+            <label>📝 任务描述</label>
+            <textarea id="al-task-detail-description" placeholder="添加任务描述...">${task['A-description'] || ''}</textarea>
+          </div>
+        </div>
+        <div class="al-modal-footer">
+          <button type="button" class="al-btn-danger" id="al-task-detail-delete">🗑️ 删除</button>
+          <button type="button" class="al-btn-secondary" id="al-task-detail-cancel">取消</button>
+          <button type="button" class="mod-cta" id="al-task-detail-save">💾 保存</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    const close = () => modal.remove();
+    
+    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
+    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
+    modal.querySelector('#al-task-detail-cancel')?.addEventListener('click', close);
+    
+    modal.querySelector('#al-task-detail-delete')?.addEventListener('click', async () => {
+      if (confirm('确定要删除这个任务吗？')) {
+        try {
+          await this.plugin.getTaskManager().deleteTask(taskId);
+          new Notice('任务已删除');
+          close();
+          this.loadAndRender();
+        } catch (error) {
+          new Notice('删除失败: ' + (error as Error).message);
+        }
+      }
+    });
+    
+    modal.querySelector('#al-task-detail-save')?.addEventListener('click', async () => {
+      const title = (modal.querySelector('#al-task-detail-title') as HTMLInputElement).value.trim();
+      const status = (modal.querySelector('#al-task-detail-status') as HTMLSelectElement).value as TaskStatus;
+      const priority = Number((modal.querySelector('#al-task-detail-priority') as HTMLSelectElement).value) as TaskPriority;
+      const start = (modal.querySelector('#al-task-detail-start') as HTMLInputElement).value || null;
+      const due = (modal.querySelector('#al-task-detail-due') as HTMLInputElement).value || null;
+      const goal = (modal.querySelector('#al-task-detail-goal') as HTMLSelectElement).value || null;
+      const description = (modal.querySelector('#al-task-detail-description') as HTMLTextAreaElement).value.trim() || null;
+      
+      if (!title) { new Notice('请输入任务名称'); return; }
+      
+      try {
+        await this.plugin.getTaskManager().updateTask(taskId, { title, status, priority, start, due, goal, description });
+        new Notice('任务已保存');
+        close();
+        this.loadAndRender();
+      } catch (error) {
+        new Notice('保存失败: ' + (error as Error).message);
+      }
+    });
+  }
+  
   private showCreateTaskModal(): void {
     const allGoals = this.plugin.getGoalManager().getAllGoals();
     if (allGoals.length === 0) { new Notice('请先创建目标，再添加任务'); this.showCreateGoalModal(); return; }
@@ -1949,6 +2106,97 @@ export class DashboardView extends ItemView {
     modal.querySelector('.al-modal-close')?.addEventListener('click', close);
     modal.querySelector('#al-cancel-task')?.addEventListener('click', close);
     modal.querySelector('#al-task-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const title = (modal.querySelector('#al-task-title') as HTMLInputElement).value.trim(); const selectedGoalId = (modal.querySelector('#al-task-goal') as HTMLSelectElement).value; const priority = Number((modal.querySelector('#al-task-priority') as HTMLSelectElement).value) as TaskPriority; const due = (modal.querySelector('#al-task-due') as HTMLInputElement).value || null; if (!title) { new Notice('请输入任务名称'); return; } if (!selectedGoalId) { new Notice('请选择关联目标'); return; } try { await this.plugin.getTaskManager().createTask({ title, priority, due, goal: selectedGoalId }); new Notice('任务创建成功！'); close(); this.loadAndRender(); } catch (error) { new Notice('创建失败: ' + (error as Error).message); } });
+  }
+  
+  private startFieldEdit(row: HTMLElement, field: string, fieldType: string, currentValue: string): void {
+    const editableEl = row.querySelector('.al-field-editable');
+    if (!editableEl) return;
+    
+    let inputEl: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+    
+    if (fieldType === 'select') {
+      inputEl = document.createElement('select');
+      inputEl.className = 'al-field-edit-select';
+      if (field === 'level') {
+        inputEl.innerHTML = '<option value="1">人生</option><option value="2">阶段</option><option value="3">年度</option><option value="4">短期</option>';
+      } else if (field === 'status') {
+        inputEl.innerHTML = '<option value="active">进行中</option><option value="completed">已完成</option><option value="abandoned">已放弃</option>';
+      }
+      inputEl.value = currentValue;
+    } else if (fieldType === 'date') {
+      inputEl = document.createElement('input');
+      inputEl.type = 'date';
+      inputEl.className = 'al-field-edit-input';
+      inputEl.value = currentValue || '';
+    } else if (fieldType === 'number') {
+      inputEl = document.createElement('input');
+      inputEl.type = 'number';
+      inputEl.className = 'al-field-edit-input';
+      inputEl.value = field === 'progress' ? currentValue.replace('%', '') : currentValue;
+      if (field === 'progress') {
+        inputEl.min = '0';
+        inputEl.max = '100';
+      }
+      if (field === 'weight') {
+        inputEl.min = '1';
+        inputEl.max = '10';
+      }
+    } else if (fieldType === 'textarea') {
+      inputEl = document.createElement('textarea');
+      inputEl.className = 'al-field-edit-textarea';
+      inputEl.rows = 3;
+      inputEl.value = currentValue === '添加描述' ? '' : currentValue;
+    } else {
+      inputEl = document.createElement('input');
+      inputEl.type = 'text';
+      inputEl.className = 'al-field-edit-input';
+      inputEl.value = currentValue;
+    }
+    
+    editableEl.replaceWith(inputEl);
+    
+    const saveEdit = async () => {
+      let saveValue: string | null = '';
+      if (inputEl instanceof HTMLTextAreaElement) {
+        saveValue = inputEl.value.trim() || null;
+      } else {
+        saveValue = inputEl.value;
+      }
+      
+      try {
+        const updateData: Record<string, unknown> = {};
+        if (field === 'progress') {
+          updateData[field] = parseInt(saveValue || '0') || 0;
+        } else if (field === 'weight') {
+          updateData[field] = parseInt(saveValue || '1') || 1;
+        } else if (field === 'level') {
+          updateData[field] = parseInt(saveValue || '3') || 3;
+        } else {
+          updateData[field] = saveValue;
+        }
+        
+        await this.plugin.getGoalManager().updateGoal(this.selectedGoalId!, updateData);
+        new Notice('更新成功');
+        this.loadAndRender();
+      } catch (error) {
+        new Notice('更新失败: ' + (error as Error).message);
+        this.loadAndRender();
+      }
+    };
+    
+    inputEl.addEventListener('blur', saveEdit);
+    inputEl.addEventListener('keydown', (e) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' && fieldType !== 'textarea') {
+        event.preventDefault();
+        saveEdit();
+      }
+      if (event.key === 'Escape') {
+        this.loadAndRender();
+      }
+    });
+    
+    inputEl.focus();
   }
   
   private async openTodayNote(): Promise<void> { try { await this.plugin.getNoteManager().getOrCreateTodayNote(); new Notice('今日日记已打开'); } catch (error) { new Notice('打开日记失败'); } }
@@ -1977,7 +2225,7 @@ export class DashboardView extends ItemView {
     style.id = 'al-dashboard-styles';
     style.textContent = `
       .al-dashboard{padding:0;height:100%;display:flex;flex-direction:column;overflow:hidden}.al-page{display:flex;flex-direction:column;height:100%;overflow:hidden}.al-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border-color);flex-shrink:0}.al-header-left{display:flex;flex-direction:column;gap:2px}.al-title{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;color:var(--text-primary)}.al-date{font-size:12px;color:var(--text-secondary)}.al-header-actions{display:flex;gap:8px}.al-header-actions button{display:inline-flex;align-items:center;gap:4px}.al-view-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--background-primary);border-bottom:1px solid var(--border-color);flex-shrink:0;overflow-x:auto;position:relative;z-index:999}.al-view-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s;position:relative;white-space:nowrap}.al-view-tab:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-view-tab.active{background:var(--interactive-accent);color:#fff}.al-tab-name{margin-right:4px}.al-tab-name-edit{border:1px solid var(--interactive-accent);border-radius:4px;padding:4px 8px;background:var(--background-primary);color:var(--text-primary);font-size:13px;outline:none;min-width:60px;max-width:150px;box-shadow:0 0 0 2px color-mix(in srgb,var(--interactive-accent) 30%,transparent)}.al-tab-context-menu{display:none;position:fixed;top:0;left:0;background:var(--background-primary);border:1px solid var(--border-color);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:100000;min-width:160px;padding:4px}.al-tab-context-menu.show{display:block}.al-tab-context-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;border:none;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;text-align:left;border-radius:4px;line-height:1.5}.al-tab-context-option:hover{background:var(--background-modifier-hover)}.al-tab-context-option .al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0}.al-tab-context-option:hover .al-tab-icon{color:var(--text-primary)}.al-view-tab-add{padding:8px 12px;opacity:0.6;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center}.al-view-tab-add:hover{opacity:1;background:var(--background-modifier-hover);color:var(--text-primary)}.al-add-view-dropdown{display:none;position:fixed;top:0;left:0;background:var(--background-primary);border:1px solid var(--border-color);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:100000;min-width:160px;padding:4px}.al-add-view-dropdown.show{display:block}.al-add-view-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;border:none;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;text-align:left;border-radius:4px;line-height:1.5}.al-add-view-option:hover{background:var(--background-modifier-hover)}.al-add-view-option .al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0}.al-add-view-option:hover .al-tab-icon{color:var(--text-primary)}.al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center}.al-tab-icon svg{width:16px;height:16px}.al-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}.al-main{padding:16px 24px;gap:16px;overflow-y:auto}.al-main-full{padding:16px 24px;gap:16px;overflow-y:auto}
-      .al-detail-view{flex:1;display:flex;flex-direction:column;overflow:hidden}.al-detail-header{display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-detail-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--text-secondary);transition:all .15s}.al-detail-icon:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-detail-title{display:flex;align-items:center;gap:12px;flex:1}.al-detail-title h2{font-size:20px;font-weight:600;color:var(--text-primary);margin:0}.al-detail-status{font-size:12px;padding:4px 12px;border-radius:12px;background:var(--text-green);color:#fff}.al-detail-status.status-completed{background:var(--text-muted)}.al-detail-status.status-cancelled{background:var(--text-red)}.al-detail-status.status-pending{background:var(--background-modifier-border);color:var(--text-secondary)}.al-detail-status.status-in-progress{background:var(--text-blue);color:#fff}.al-detail-content{flex:1;display:flex;overflow:hidden}.al-detail-main{flex:1;padding:24px;overflow-y:auto}.al-detail-sidebar{width:300px;padding:24px;border-left:1px solid var(--border-color);background:var(--background-secondary);overflow-y:auto;flex-shrink:0}.al-detail-section{margin-bottom:24px}.al-detail-section h3{font-size:14px;font-weight:600;color:var(--text-secondary);margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-detail-info-grid{display:grid;gap:12px;margin-bottom:16px}.al-detail-info-item{display:flex;justify-content:space-between;align-items:center}.al-detail-info-label{font-size:13px;color:var(--text-secondary)}.al-detail-info-value{font-size:13px;color:var(--text-primary);font-weight:500}.al-detail-progress-row{display:flex;justify-content:space-between;align-items:center}.al-detail-progress{display:flex;align-items:center;gap:8px}.al-detail-progress .al-progress-bar{width:120px;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-detail-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-detail-stats{display:flex;gap:16px}.al-detail-stat{flex:1;display:flex;flex-direction:column;align-items:center;padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color)}.al-detail-stat-num{font-size:28px;font-weight:700;color:var(--text-primary)}.al-detail-stat-label{font-size:12px;color:var(--text-secondary);margin-top:4px}.al-detail-stat-success .al-detail-stat-num{color:var(--text-green)}.al-detail-tasks{display:flex;flex-direction:column;gap:8px}.al-detail-task{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-task:hover{border-color:var(--interactive-accent)}.al-detail-task-content{flex:1}.al-detail-task-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:4px}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary)}.al-detail-actions{display:flex;flex-direction:column;gap:8px;margin-bottom:24px}.al-detail-actions button,.al-action-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px}.al-action-btn-success{background:var(--text-green);color:#fff;border:none;border-radius:6px;cursor:pointer}.al-action-btn-danger{background:transparent;color:var(--text-red);border:1px solid var(--text-red);border-radius:6px;cursor:pointer}.al-task-actions{display:flex;flex-direction:column;gap:8px}.al-task-goal-card{padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-task-goal-card:hover{border-color:var(--interactive-accent)}.al-task-goal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-task-goal-progress{display:flex;align-items:center;gap:8px}.al-task-goal-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-task-goal-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-task-goal-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}
+      .al-detail-view{flex:1;display:flex;flex-direction:column;overflow:hidden}.al-detail-header{display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-detail-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--text-secondary);transition:all .15s}.al-detail-icon:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-detail-title{display:flex;align-items:center;gap:12px;flex:1}.al-detail-title h2{font-size:20px;font-weight:600;color:var(--text-primary);margin:0}.al-detail-content{flex:1;display:flex;overflow:hidden}.al-detail-main{flex:1;padding:24px;overflow-y:auto}.al-detail-section{margin-bottom:24px}.al-detail-section h3{font-size:14px;font-weight:600;color:var(--text-secondary);margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-detail-progress-section{margin-bottom:20px;padding:16px;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color)}.al-detail-progress-label{font-size:13px;color:var(--text-secondary);margin-bottom:8px}.al-detail-progress-large{display:flex;align-items:center;gap:12px}.al-progress-bar-large{flex:1;height:12px;background:var(--background-modifier-border);border-radius:6px;overflow:hidden}.al-progress-fill-large{height:100%;background:var(--interactive-accent);border-radius:6px;transition:width .3s}.al-detail-progress-value{font-size:16px;font-weight:700;color:var(--text-primary);min-width:48px;text-align:right}.al-detail-description-section{margin-bottom:20px}.al-detail-action-row{display:flex;align-items:center;gap:10px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-action-row:hover{border-color:var(--interactive-accent);background:var(--background-modifier-hover)}.al-detail-action-row-add{background:color-mix(in srgb,var(--interactive-accent) 10%,transparent);border-color:var(--interactive-accent);border-style:dashed}.al-detail-action-row-add:hover{background:color-mix(in srgb,var(--interactive-accent) 15%,transparent);border-style:solid}.al-detail-action-icon{font-size:18px}.al-detail-action-text{font-size:14px;color:var(--text-secondary);flex:1;text-align:left}.al-detail-stats{display:flex;gap:16px}.al-detail-stat{flex:1;display:flex;flex-direction:column;align-items:center;padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color)}.al-detail-stat-num{font-size:28px;font-weight:700;color:var(--text-primary)}.al-detail-stat-label{font-size:12px;color:var(--text-secondary);margin-top:4px}.al-detail-stat-success .al-detail-stat-num{color:var(--text-green)}.al-detail-tasks{display:flex;flex-direction:column;gap:8px}.al-detail-task{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-task:hover{border-color:var(--interactive-accent)}.al-detail-task-content{flex:1}.al-detail-task-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:4px}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary)}.al-action-btn-success{background:var(--text-green);color:#fff;border:none;border-radius:6px;cursor:pointer}.al-action-btn-danger{background:transparent;color:var(--text-red);border:1px solid var(--text-red);border-radius:6px;cursor:pointer}.al-task-actions{display:flex;flex-direction:column;gap:8px}.al-task-goal-card{padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-task-goal-card:hover{border-color:var(--interactive-accent)}.al-task-goal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-task-goal-progress{display:flex;align-items:center;gap:8px}.al-task-goal-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-task-goal-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-task-goal-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}
       .al-table-view{flex:1;padding:16px;overflow:auto}.al-table-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-table{width:100%;border-collapse:collapse;background:var(--background-secondary);border-radius:10px;overflow:hidden}.al-table th{text-align:left;padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}.al-table td{padding:12px 16px;border-bottom:1px solid var(--border-color);font-size:13px;color:var(--text-primary)}.al-table-row:hover{background:var(--background-modifier-hover);cursor:pointer}.al-table-row.completed td{color:var(--text-muted)}.al-table-row.completed .al-table-title{text-decoration:line-through}.al-table-title{font-weight:600}.al-goal-tag{font-weight:500;font-size:12px;cursor:pointer}.al-goal-tag:hover{text-decoration:underline}.al-status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}.al-status-badge.status-pending,.al-status-badge.status-active{background:var(--interactive-accent);color:#fff}.al-status-badge.status-in-progress{background:color-mix(in srgb,var(--text-blue) 20%,transparent);color:var(--text-blue)}.al-status-badge.status-completed{background:color-mix(in srgb,var(--text-green) 20%,transparent);color:var(--text-green)}.al-status-badge.status-abandoned,.al-status-badge.status-cancelled{background:var(--background-modifier-border);color:var(--text-muted)}.al-level-dot{width:10px;height:10px;border-radius:50%;display:inline-block}.al-progress-text{font-weight:500}
       .al-board-group-label{font-size:12px;color:var(--text-secondary)}.al-board-view{display:flex;flex-direction:row;flex:1;gap:12px;padding:16px;overflow-x:auto;min-height:0;background:var(--background-primary);align-items:stretch}.al-board-empty{display:flex;justify-content:center;align-items:center;width:100%}.al-board-column{flex:0 0 260px;display:flex;flex-direction:column;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;max-height:100%}.al-board-column-header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:2px solid var(--column-accent,var(--interactive-accent));background:var(--background-primary);flex-shrink:0}.al-board-column-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);overflow:visible;flex-wrap:wrap;white-space:nowrap}.al-board-column-body{flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:150px}.al-level-badge{font-size:12px;padding:3px 10px;border-radius:6px;color:#fff;font-weight:600;white-space:nowrap}.al-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.al-goal-card{padding:14px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:grab;transition:all .15s;margin-bottom:8px}.al-goal-card:hover{border-color:var(--interactive-accent);box-shadow:0 2px 8px rgba(0,0,0,0.1)}.al-goal-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:10px;line-height:1.3}.al-goal-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:10px}.al-goal-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-goal-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-goal-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-goal-card-meta{display:flex;gap:12px;font-size:12px;color:var(--text-muted)}.al-goal-card.dragging{opacity:0.3;cursor:grabbing}.drag-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:0.9;transform:rotate(2deg);box-shadow:0 8px 24px rgba(0,0,0,0.2)}.al-board-column.drop-target{border:2px dashed var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 10%,transparent)}
       .al-gallery-view{flex:1;padding:16px;overflow-y:auto}.al-gallery-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-gallery-section{margin-bottom:24px}.al-gallery-section-title{font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}.al-gallery-card{position:relative;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);padding:16px;transition:all .2s;cursor:pointer}.al-gallery-card:hover{border-color:var(--interactive-accent);box-shadow:0 4px 12px rgba(0,0,0,.1);transform:translateY(-2px)}.al-gallery-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:10px}.al-gallery-card-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:12px;line-height:1.4}.al-gallery-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-gallery-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-gallery-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent);border-radius:3px}.al-gallery-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-gallery-card-meta{font-size:11px;color:var(--text-secondary)}.al-gallery-card-tasks{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color);font-size:12px;color:var(--text-secondary)}
@@ -1998,8 +2246,14 @@ export class DashboardView extends ItemView {
       .al-filter-builder{padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color)}.al-filter-logic-row{display:flex;align-items:center;gap:8px;margin-bottom:12px}.al-filter-logic-label{font-size:12px;color:var(--text-secondary)}.al-filter-logic-btn{padding:4px 10px;border:1px solid var(--border-color);border-radius:4px;background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;transition:all .15s}.al-filter-logic-btn:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-filter-logic-btn.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-filter-conditions{display:flex;flex-direction:column;gap:8px}.al-filter-condition{display:flex;align-items:center;gap:8px;padding:8px;background:var(--background-secondary);border-radius:6px;border:1px solid var(--border-color)}.al-filter-field-select,.al-filter-operator-select,.al-filter-value-select{padding:6px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer}.al-filter-field-select:hover,.al-filter-operator-select:hover,.al-filter-value-select:hover{border-color:var(--interactive-accent)}.al-filter-value-input{padding:6px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--background-primary);color:var(--text-primary);font-size:12px;min-width:120px}.al-filter-value-input:hover{border-color:var(--interactive-accent)}.al-filter-value-input:focus{outline:none;border-color:var(--interactive-accent)}.al-filter-date-input{min-width:140px}.al-filter-no-value{padding:6px 8px;color:var(--text-muted);font-size:12px}.al-filter-remove-btn{width:24px;height:24px;border:none;border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;margin-left:auto}.al-filter-remove-btn:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent);color:var(--text-red)}.al-filter-add-btn{width:100%;padding:8px;margin-top:8px;border:1px dashed var(--border-color);border-radius:6px;background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-add-btn:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 5%,transparent)}
       .al-board-column-footer{padding:8px;border-top:1px dashed var(--border-color)}.al-add-goal-btn{display:flex;align-items:center;justify-content:center;gap:4px;padding:8px;border:1px dashed var(--border-color);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:12px;transition:all .15s}.al-add-goal-btn:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:var(--background-modifier-hover)}
       .al-add-goal-link{display:block;padding:12px 16px;color:var(--text-muted);cursor:pointer;text-align:center;border-top:1px solid var(--border-color);font-size:13px;transition:all .15s}.al-add-goal-link:hover{color:var(--text-normal);background:var(--background-secondary)}
+      .al-detail-fields{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-field-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border-color);font-size:14px}.al-field-row:last-child{border-bottom:none}.al-field-row:hover{background:var(--background-modifier-hover)}.al-field-icon{font-size:16px;flex-shrink:0}.al-field-label{color:var(--text-secondary);min-width:80px;flex-shrink:0}.al-field-value{color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-field-editable{cursor:pointer;color:var(--text-muted)}.al-field-editable:hover{color:var(--text-primary)}.al-field-link{color:var(--interactive-accent);cursor:pointer;text-decoration:underline}.al-field-progress{display:flex;align-items:center;gap:8px;flex:1}.al-progress-bar-small{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden;max-width:150px}.al-progress-fill-small{height:100%;background:var(--interactive-accent);border-radius:3px}.al-field-progress-value{font-size:13px;font-weight:600;color:var(--text-primary);min-width:40px}
+      .al-field-edit-input,.al-field-edit-select,.al-field-edit-textarea{flex:1;padding:6px 10px;border:1px solid var(--interactive-accent);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box}.al-field-edit-select{max-width:150px}.al-field-edit-textarea{min-height:60px;resize:vertical}
+      .al-detail-description-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-description-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-description-icon{font-size:16px}.al-detail-description-title{font-size:13px;font-weight:600;color:var(--text-secondary)}.al-detail-description-content{padding:16px;color:var(--text-muted);font-size:14px;line-height:1.6;cursor:pointer;min-height:60px}.al-detail-description-content:hover{color:var(--text-primary)}.al-detail-description-block .al-field-edit-textarea{width:100%;max-width:none}
+      .al-progress-slider-container{display:flex;align-items:center;gap:12px;width:100%;max-width:280px}.al-progress-slider{-webkit-appearance:none;width:100%;height:6px;border-radius:3px;background:var(--background-modifier-border);outline:none}.al-progress-slider::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--interactive-accent);cursor:pointer;border:2px solid var(--background-primary);box-shadow:0 2px 4px rgba(0,0,0,0.2)}.al-progress-slider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--interactive-accent);cursor:pointer;border:2px solid var(--background-primary);box-shadow:0 2px 4px rgba(0,0,0,0.2)}.al-progress-value{font-size:14px;font-weight:500;color:var(--text-primary);min-width:40px;text-align:right}
+      .al-detail-tasks-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-tasks-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-tasks-icon{font-size:16px}.al-detail-tasks-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-detail-tasks-count{background:var(--interactive-accent);color:#fff;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px}.al-detail-task-summary{display:flex;gap:20px;padding:10px 16px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--border-color)}.al-detail-tasks{display:flex;flex-direction:column;gap:2px;padding:8px 16px}.al-detail-task{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;cursor:pointer;transition:all .15s}.al-detail-task:hover{background:var(--background-modifier-hover)}.al-detail-task .task-list-item-checkbox{margin:0 8px 0 0;width:16px;height:16px;cursor:pointer;vertical-align:middle}.al-detail-tasks-empty{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-task-title{flex:1;font-size:14px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-priority{font-size:13px;font-weight:500;flex-shrink:0;min-width:50px;text-align:right}
       .al-gallery-add-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:120px;border:1px dashed var(--border-color);border-radius:10px;color:var(--text-muted);cursor:pointer;transition:all .15s}.al-gallery-add-card:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:var(--background-secondary)}.al-gallery-add-card .al-gallery-add-icon{font-size:28px;opacity:.5}.al-gallery-add-card:hover .al-gallery-add-icon{opacity:1}
-    `;
+      .al-modal-task-detail .al-modal-box{max-width:500px;width:90%}.al-modal-task-detail .al-modal-body{padding:20px;max-height:70vh;overflow-y:auto}.al-task-detail-title input{width:100%;font-size:18px;font-weight:600;border:1px solid var(--border-color);border-radius:6px;padding:12px;background:var(--background-primary);color:var(--text-primary);box-sizing:border-box}.al-task-detail-title input:focus{outline:none;border-color:var(--interactive-accent)}.al-task-detail-fields{display:flex;flex-direction:column;gap:12px;margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color)}.al-task-detail-field{display:flex;align-items:center;gap:12px}.al-task-detail-field label{width:100px;flex-shrink:0;font-size:14px;color:var(--text-secondary)}.al-task-detail-field select,.al-task-detail-field input{flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px}.al-task-detail-field select:focus,.al-task-detail-field input:focus{outline:none;border-color:var(--interactive-accent)}.al-task-detail-desc-section{margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color)}.al-task-detail-desc-section label{display:block;font-size:14px;color:var(--text-secondary);margin-bottom:8px}.al-task-detail-desc-section textarea{width:100%;min-height:100px;padding:12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px;resize:vertical;box-sizing:border-box}.al-task-detail-desc-section textarea:focus{outline:none;border-color:var(--interactive-accent)}.al-modal-footer{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-top:1px solid var(--border-color);background:var(--background-secondary)}.al-modal-footer .al-btn-danger{background:transparent;border:1px solid var(--text-red);color:var(--text-red);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:14px}.al-modal-footer .al-btn-danger:hover{background:var(--text-red);color:#fff}.al-modal-footer .al-btn-secondary{background:transparent;border:1px solid var(--border-color);color:var(--text-secondary);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:14px}.al-modal-footer .al-btn-secondary:hover{background:var(--background-modifier-hover)}
+      `;
     document.head.appendChild(style);
   }
 }

@@ -30,6 +30,7 @@ export interface Goal {
   'A-weight': number;
   'A-start': string;
   'A-due': string | null;
+  'A-description': string | null;
   'A-created': string;
   'A-updated': string;
 }
@@ -41,12 +42,14 @@ export interface Task {
   'A-title': string;
   'A-status': TaskStatus;
   'A-priority': TaskPriority;
+  'A-start': string | null;
   'A-due': string | null;
   'A-goal': string | null;
   'A-tags': string[];
   'A-source': string | null;
   'A-created': string;
   'A-completed': string | null;
+  'A-description': string | null;
 }
 
 // 目标树节点

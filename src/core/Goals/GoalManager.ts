@@ -17,11 +17,13 @@ export interface CreateGoalDTO {
 
 export interface UpdateGoalDTO {
   title?: string;
-  description?: string;
+  description?: string | null;
   due?: string | null;
   status?: GoalStatus;
   progress?: number;
   level?: GoalLevel;
+  start?: string;
+  weight?: number;
 }
 
 export class GoalManager {
@@ -69,11 +71,19 @@ export class GoalManager {
   /**
    * 从文件内容解析目标
    */
-  private parseGoalFromContent(file: TFile, content: string): Goal | null {
-    const frontmatter = this.storage.parseFrontmatter(file);
+  private parseGoalFromContent(file: TFile, fileContent: string): Goal | null {
+    const frontmatter = this.parseFrontmatterFromContent(fileContent);
     
     if (frontmatter['A-type'] !== 'goal') {
       return null;
+    }
+    
+    let description = null;
+    if (fileContent) {
+      const overviewMatch = fileContent.match(/## 概述\s*\n([\s\S]*?)(?=\n## |\n$)/);
+      if (overviewMatch) {
+        description = overviewMatch[1].trim() || null;
+      }
     }
     
     return {
@@ -87,9 +97,44 @@ export class GoalManager {
       'A-weight': Number(frontmatter['A-weight'] || 1),
       'A-start': String(frontmatter['A-start'] || new Date().toISOString().split('T')[0]),
       'A-due': frontmatter['A-due'] ? String(frontmatter['A-due']) : null,
+      'A-description': description,
       'A-created': String(frontmatter['A-created'] || ''),
       'A-updated': String(frontmatter['A-updated'] || new Date().toISOString())
     };
+  }
+  
+  /**
+   * 直接从文件内容解析 frontmatter
+   */
+  private parseFrontmatterFromContent(content: string): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    
+    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    if (!frontmatterMatch) {
+      return result;
+    }
+    
+    const frontmatterContent = frontmatterMatch[1];
+    const lines = frontmatterContent.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) {
+        continue;
+      }
+      
+      const colonIndex = trimmed.indexOf(':');
+      if (colonIndex === -1) {
+        continue;
+      }
+      
+      const key = trimmed.substring(0, colonIndex).trim();
+      const value = trimmed.substring(colonIndex + 1).trim();
+      
+      result[key] = value;
+    }
+    
+    return result;
   }
   
   /**
@@ -110,6 +155,7 @@ export class GoalManager {
       'A-weight': 1,
       'A-start': now,
       'A-due': dto.due || null,
+      'A-description': dto.description || null,
       'A-created': now,
       'A-updated': now
     };
@@ -150,8 +196,8 @@ export class GoalManager {
       ''
     ];
     
-    if (description) {
-      lines.push('## 概述', '', description, '');
+    if (description || goal['A-description']) {
+      lines.push('## 概述', '', description || (goal['A-description'] || ''), '');
     }
     
     if (goal['A-parent']) {
@@ -176,10 +222,13 @@ export class GoalManager {
     const now = new Date().toISOString().split('T')[0];
     
     if (dto.title !== undefined) goal['A-title'] = dto.title;
+    if (dto.description !== undefined) goal['A-description'] = dto.description || null;
     if (dto.due !== undefined) goal['A-due'] = dto.due;
     if (dto.status !== undefined) goal['A-status'] = dto.status;
     if (dto.progress !== undefined) goal['A-progress'] = dto.progress;
     if (dto.level !== undefined) goal['A-level'] = dto.level;
+    if (dto.start !== undefined) goal['A-start'] = dto.start;
+    if (dto.weight !== undefined) goal['A-weight'] = dto.weight;
     goal['A-updated'] = now;
     
     const content = await this.storage.readFile(this.storage.getGoalPath(id));
@@ -199,36 +248,99 @@ export class GoalManager {
     const updatedLines: string[] = [];
     
     let inFrontmatter = false;
+    let inOverview = false;
+    const frontmatterFields: Record<string, boolean> = {};
     
     for (const line of lines) {
       if (line === '---') {
-        inFrontmatter = !inFrontmatter;
         updatedLines.push(line);
+        inFrontmatter = !inFrontmatter;
+        if (!inFrontmatter) {
+          for (const [key, value] of [
+            ['A-title', goal['A-title']],
+            ['A-level', goal['A-level']],
+            ['A-status', goal['A-status']],
+            ['A-progress', goal['A-progress']],
+            ['A-due', goal['A-due'] || ''],
+            ['A-start', goal['A-start']],
+            ['A-weight', goal['A-weight']],
+            ['A-updated', goal['A-updated']],
+          ]) {
+            if (!frontmatterFields[key]) {
+              updatedLines.splice(updatedLines.length - 1, 0, `${key}: ${value}`);
+            }
+          }
+        }
         continue;
       }
       
       if (inFrontmatter) {
         if (line.startsWith('A-title:')) {
           updatedLines.push(`A-title: ${goal['A-title']}`);
+          frontmatterFields['A-title'] = true;
+        } else if (line.startsWith('A-level:')) {
+          updatedLines.push(`A-level: ${goal['A-level']}`);
+          frontmatterFields['A-level'] = true;
         } else if (line.startsWith('A-status:')) {
           updatedLines.push(`A-status: ${goal['A-status']}`);
+          frontmatterFields['A-status'] = true;
         } else if (line.startsWith('A-progress:')) {
           updatedLines.push(`A-progress: ${goal['A-progress']}`);
+          frontmatterFields['A-progress'] = true;
         } else if (line.startsWith('A-due:')) {
           updatedLines.push(`A-due: ${goal['A-due'] || ''}`);
+          frontmatterFields['A-due'] = true;
         } else if (line.startsWith('A-updated:')) {
           updatedLines.push(`A-updated: ${goal['A-updated']}`);
+          frontmatterFields['A-updated'] = true;
+        } else if (line.startsWith('A-start:')) {
+          updatedLines.push(`A-start: ${goal['A-start']}`);
+          frontmatterFields['A-start'] = true;
+        } else if (line.startsWith('A-weight:')) {
+          updatedLines.push(`A-weight: ${goal['A-weight']}`);
+          frontmatterFields['A-weight'] = true;
         } else {
           updatedLines.push(line);
         }
       } else {
-        // 更新标题
+        if (line.startsWith('## 概述')) {
+          inOverview = true;
+          updatedLines.push(line);
+          continue;
+        }
+        if (line.startsWith('## ') && inOverview) {
+          inOverview = false;
+          if (goal['A-description']) {
+            updatedLines.push('');
+            updatedLines.push(goal['A-description']);
+            updatedLines.push('');
+          }
+          updatedLines.push(line);
+          continue;
+        }
+        if (inOverview) {
+          continue;
+        }
         if (line.startsWith('# ')) {
           updatedLines.push(`# ${goal['A-title']}`);
         } else {
           updatedLines.push(line);
         }
       }
+    }
+    
+    if (inOverview) {
+      if (goal['A-description']) {
+        updatedLines.push('');
+        updatedLines.push(goal['A-description']);
+        updatedLines.push('');
+      }
+    } else if (goal['A-description'] && !updatedLines.some(l => l.startsWith('## 概述'))) {
+      updatedLines.push('');
+      updatedLines.push('## 概述');
+      updatedLines.push('');
+      updatedLines.push(goal['A-description']);
+      updatedLines.push('');
     }
     
     return updatedLines.join('\n');

@@ -11,7 +11,9 @@ export interface CreateTaskDTO {
   title: string;
   goal?: string | null;
   priority?: TaskPriority;
+  start?: string | null;
   due?: string | null;
+  description?: string | null;
   tags?: string[];
   source?: string | null;
 }
@@ -21,8 +23,10 @@ export interface UpdateTaskDTO {
   status?: TaskStatus;
   priority?: TaskPriority;
   due?: string | null;
+  start?: string | null;
   tags?: string[];
   goal?: string | null;
+  description?: string | null;
 }
 
 export class TaskManager {
@@ -70,7 +74,7 @@ export class TaskManager {
    * 从文件内容解析任务
    */
   private parseTaskFromContent(file: TFile, content: string): Task | null {
-    const frontmatter = this.storage.parseFrontmatter(file);
+    const frontmatter = this.parseFrontmatterFromContent(content);
     
     if (frontmatter['A-type'] !== 'task') {
       return null;
@@ -90,13 +94,57 @@ export class TaskManager {
       'A-title': String(frontmatter['A-title'] || ''),
       'A-status': (frontmatter['A-status'] || 'pending') as TaskStatus,
       'A-priority': Number(frontmatter['A-priority'] || 3) as TaskPriority,
+      'A-start': frontmatter['A-start'] ? String(frontmatter['A-start']) : null,
       'A-due': frontmatter['A-due'] ? String(frontmatter['A-due']) : null,
       'A-goal': frontmatter['A-goal'] ? String(frontmatter['A-goal']) : null,
       'A-tags': parsedTags,
       'A-source': frontmatter['A-source'] ? String(frontmatter['A-source']) : null,
       'A-created': String(frontmatter['A-created'] || ''),
-      'A-completed': frontmatter['A-completed'] ? String(frontmatter['A-completed']) : null
+      'A-completed': frontmatter['A-completed'] ? String(frontmatter['A-completed']) : null,
+      'A-description': frontmatter['A-description'] ? String(frontmatter['A-description']) : null
     };
+  }
+  
+  /**
+   * 直接从文件内容解析 frontmatter
+   */
+  private parseFrontmatterFromContent(content: string): Record<string, unknown> {
+    const result: Record<string, unknown> = {};
+    
+    const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---/);
+    if (!frontmatterMatch) {
+      return result;
+    }
+    
+    const frontmatterContent = frontmatterMatch[1];
+    const lines = frontmatterContent.split('\n');
+    
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) {
+        continue;
+      }
+      
+      const colonIndex = trimmed.indexOf(':');
+      if (colonIndex === -1) {
+        continue;
+      }
+      
+      const key = trimmed.substring(0, colonIndex).trim();
+      const value = trimmed.substring(colonIndex + 1).trim();
+      
+      if (value.startsWith('[') && value.endsWith(']')) {
+        try {
+          result[key] = JSON.parse(value);
+        } catch {
+          result[key] = value;
+        }
+      } else {
+        result[key] = value;
+      }
+    }
+    
+    return result;
   }
   
   /**
@@ -112,12 +160,14 @@ export class TaskManager {
       'A-title': dto.title,
       'A-status': 'pending',
       'A-priority': dto.priority || 3,
+      'A-start': dto.start || null,
       'A-due': dto.due || null,
       'A-goal': dto.goal || null,
       'A-tags': dto.tags || [],
       'A-source': dto.source || null,
       'A-created': now,
-      'A-completed': null
+      'A-completed': null,
+      'A-description': dto.description || null
     };
     
     const content = this.generateTaskContent(task);
@@ -203,6 +253,14 @@ export class TaskManager {
       task['A-goal'] = dto.goal;
     }
     
+    if (dto.start !== undefined) {
+      task['A-start'] = dto.start;
+    }
+    
+    if (dto.description !== undefined) {
+      task['A-description'] = dto.description;
+    }
+    
     const content = await this.storage.readFile(this.storage.getTaskPath(id));
     if (content) {
       const updatedContent = this.updateTaskInContent(content, task);
@@ -220,6 +278,7 @@ export class TaskManager {
     const updatedLines: string[] = [];
     
     let inFrontmatter = false;
+    let foundFields: Set<string> = new Set();
     
     for (const line of lines) {
       if (line === '---') {
@@ -231,14 +290,25 @@ export class TaskManager {
       if (inFrontmatter) {
         if (line.startsWith('A-title:')) {
           updatedLines.push(`A-title: ${task['A-title']}`);
+          foundFields.add('A-title');
         } else if (line.startsWith('A-status:')) {
           updatedLines.push(`A-status: ${task['A-status']}`);
+          foundFields.add('A-status');
         } else if (line.startsWith('A-priority:')) {
           updatedLines.push(`A-priority: ${task['A-priority']}`);
+          foundFields.add('A-priority');
         } else if (line.startsWith('A-due:')) {
           updatedLines.push(`A-due: ${task['A-due'] || ''}`);
+          foundFields.add('A-due');
+        } else if (line.startsWith('A-start:')) {
+          updatedLines.push(`A-start: ${task['A-start'] || ''}`);
+          foundFields.add('A-start');
         } else if (line.startsWith('A-completed:')) {
           updatedLines.push(`A-completed: ${task['A-completed'] || ''}`);
+          foundFields.add('A-completed');
+        } else if (line.startsWith('A-goal:')) {
+          updatedLines.push(`A-goal: ${task['A-goal'] || ''}`);
+          foundFields.add('A-goal');
         } else if (line === 'A-tags:') {
           updatedLines.push(line);
           if (task['A-tags'].length === 0) {
@@ -248,20 +318,67 @@ export class TaskManager {
               updatedLines.push(`  - ${tag}`);
             }
           }
+          foundFields.add('A-tags');
           // Skip original tags
           let nextLine = lines[lines.indexOf(line) + 1];
           while (nextLine && nextLine.startsWith('  - ')) {
             lines.splice(lines.indexOf(nextLine), 1);
             nextLine = lines[lines.indexOf(line) + 1];
           }
+        } else if (line === 'A-description:') {
+          // Skip the description field line
+          foundFields.add('A-description');
+          continue;
         } else {
           updatedLines.push(line);
         }
       } else {
         if (line.startsWith('# ')) {
           updatedLines.push(`# ${task['A-title']}`);
+        } else if (line.startsWith('## 任务描述')) {
+          // Skip the description section
+          continue;
         } else {
           updatedLines.push(line);
+        }
+      }
+    }
+    
+    // Add missing fields before closing ---
+    if (inFrontmatter === false) {
+      const missingFields: string[] = [];
+      if (!foundFields.has('A-start') && task['A-start']) {
+        missingFields.push(`A-start: ${task['A-start']}`);
+      }
+      if (!foundFields.has('A-goal') && task['A-goal']) {
+        missingFields.push(`A-goal: ${task['A-goal']}`);
+      }
+      
+      if (missingFields.length > 0) {
+        // Insert before closing ---
+        const closingIndex = updatedLines.indexOf('---');
+        if (closingIndex !== -1) {
+          updatedLines.splice(closingIndex, 0, ...missingFields);
+        }
+      }
+    }
+    
+    // Add description in body section
+    if (task['A-description']) {
+      // Find position after frontmatter
+      let insertIndex = -1;
+      for (let i = 0; i < updatedLines.length; i++) {
+        if (updatedLines[i] === '---' && i > 0) {
+          insertIndex = i + 1;
+          break;
+        }
+      }
+      
+      if (insertIndex !== -1) {
+        // Check if description section already exists
+        const hasDescSection = updatedLines.some(l => l.startsWith('## 任务描述'));
+        if (!hasDescSection) {
+          updatedLines.splice(insertIndex, 0, '', '## 任务描述', '', task['A-description'], '');
         }
       }
     }
