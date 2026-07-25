@@ -141,7 +141,7 @@ export class GoalManager {
    * 创建目标
    */
   async createGoal(dto: CreateGoalDTO): Promise<Goal> {
-    const id = this.storage.generateId('goal');
+    const id = dto.title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 100);
     const now = new Date().toISOString().split('T')[0];
     
     const goal: Goal = {

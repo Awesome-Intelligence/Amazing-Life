@@ -199,6 +199,23 @@ export class FileStorage {
   }
   
   /**
+   * 根据目标标题生成文件路径（用于创建新目标）
+   */
+  getGoalPathByTitle(title: string): string {
+    const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 100);
+    return `${this.getGoalsPath()}/${safeTitle}.md`;
+  }
+  
+  /**
+   * 根据目标标题获取目标文件
+   */
+  getGoalFileByTitle(title: string): TFile | null {
+    const path = this.getGoalPathByTitle(title);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    return file instanceof TFile ? file : null;
+  }
+  
+  /**
    * 生成任务文件路径
    */
   getTaskPath(id: string): string {
