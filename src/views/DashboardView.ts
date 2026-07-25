@@ -2,8 +2,8 @@
  * Dashboard View - Clean Layout Version with View Switching
  */
 
-import { ItemView, Notice, Modal, TFile, setIcon } from 'obsidian';
-import { Goal, Task, GoalLevel, TaskStatus, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FilterState, SavedFilterView, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS, ViewTab, ViewTabType, getDefaultViewTabs } from '../types';
+import { ItemView, Notice, Modal, setIcon } from 'obsidian';
+import { Goal, Task, GoalLevel, TaskStatus, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS, ViewTab, ViewTabType, getDefaultViewTabs } from '../types';
 import AmazingLife from '../main';
 
 export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
@@ -62,7 +62,6 @@ export class DashboardView extends ItemView {
       await this.plugin.getTaskManager().loadTasks();
       this.render();
     } catch (error) {
-      console.error('[AL] Error loading data:', error);
       new Notice('加载数据失败: ' + (error as Error).message);
     }
   }
@@ -991,7 +990,6 @@ export class DashboardView extends ItemView {
       // 按层级分组
       columnsHtml = [1, 2, 3, 4].map(level => {
         const goals = allGoals.filter(g => g['A-level'] === level);
-        console.log('[AL Board] Rendering level', level, 'name:', levelNames[level], 'color:', levelColors[level], 'goals:', goals.length);
         return `<div class="al-board-column" data-column-type="level" data-column-value="${level}">
           <div class="al-board-column-header">
             <div class="al-board-column-title">
@@ -1105,12 +1103,6 @@ export class DashboardView extends ItemView {
     if (fields.includes('completedTasksCount')) html += `<div class="al-goal-meta">✓ 已完成 ${completedCount} 个</div>`;
     
     return html;
-  }
-  
-  private renderGoals(goals: Goal[]): string {
-    const fields = this.getGoalFields();
-    const allTasks = this.plugin.getTaskManager().getAllTasks();
-    return goals.slice(0, 5).map(goal => `<div class="al-goal" data-goal-id="${goal['A-id']}"><div class="al-goal-top">${this.renderGoalFields(goal, fields, allTasks)}</div></div>`).join('');
   }
   
   private renderCalendar(): string {
@@ -1963,68 +1955,6 @@ export class DashboardView extends ItemView {
     setTimeout(() => {
       document.addEventListener('click', closeHandler);
     }, 0);
-  }
-  
-  // 显示添加视图弹窗（已废弃，保留兼容性）
-  private showAddViewModal(): void {
-    const typeOptions = [
-      { value: 'list', label: '列表视图', icon: 'list' },
-      { value: 'board', label: '看板视图', icon: 'columns' },
-      { value: 'gallery', label: '画廊视图', icon: 'gallery-horizontal' }
-    ];
-    
-    const modal = document.createElement('div');
-    modal.className = 'al-modal';
-    modal.innerHTML = `
-      <div class="al-modal-bg"></div>
-      <div class="al-modal-box">
-        <div class="al-modal-header">
-          <span>添加视图</span>
-          <button class="al-modal-close">×</button>
-        </div>
-        <div class="al-modal-body" style="padding:20px">
-          <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary)">选择视图类型：</p>
-          <div style="display:flex;flex-direction:column;gap:8px">
-            ${typeOptions.map(opt => `
-              <button class="al-add-view-type-btn" data-type="${opt.value}">
-                <span class="al-tab-icon" data-icon="${opt.icon}"></span>
-                <span>${opt.label}</span>
-              </button>
-            `).join('')}
-          </div>
-        </div>
-      </div>
-    `;
-    
-    document.body.appendChild(modal);
-    
-    const close = () => modal.remove();
-    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
-    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
-    
-    // 设置图标
-    setTimeout(() => {
-      modal.querySelectorAll('.al-tab-icon').forEach(iconEl => {
-        const iconName = iconEl.getAttribute('data-icon');
-        if (iconName) {
-          try {
-            setIcon(iconEl as HTMLElement, iconName);
-          } catch (e) {}
-        }
-      });
-    }, 0);
-    
-    // 选择类型后显示名称输入
-    modal.querySelectorAll('.al-add-view-type-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
-        const type = (btn as HTMLElement).getAttribute('data-type') as ViewTabType;
-        const name = prompt('请输入视图名称：');
-        if (name !== null) {
-          await this.addTab(type, name);
-        }
-        close();
-      });
-    });
   }
   
   private showCreateGoalModal(prefill?: { level?: number; status?: string }): void {

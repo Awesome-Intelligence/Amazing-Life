@@ -58,13 +58,6 @@ export class NoteManager {
   }
   
   /**
-   * 获取日记内容
-   */
-  async getDailyNoteContent(date: string): Promise<string | null> {
-    return this.storage.readFile(this.storage.getDailyNotePath(date));
-  }
-  
-  /**
    * 获取或创建今日日记
    */
   async getOrCreateTodayNote(): Promise<TFile> {

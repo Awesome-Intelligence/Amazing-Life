@@ -3,9 +3,6 @@
  * V0.1 Core Data Models
  */
 
-// 元数据前缀
-export const PREFIX = 'A-';
-
 // 目标层级
 export type GoalLevel = 1 | 2 | 3 | 4;
 
@@ -117,23 +114,6 @@ export interface FilterCondition {
 
 // 筛选条件组合
 export type FilterLogic = 'and' | 'or';
-
-// 筛选视图（保存的筛选配置）
-export interface SavedFilterView {
-  id: string;
-  name: string;
-  conditions: FilterCondition[];
-  logic: FilterLogic;
-  viewType?: ViewType; // 可选，关联的视图类型
-  createdAt: string;
-  updatedAt: string;
-}
-
-// 筛选状态
-export interface FilterState {
-  conditions: FilterCondition[];
-  logic: FilterLogic;
-}
 
 // 筛选操作符标签
 export const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
@@ -259,7 +239,6 @@ export interface PluginSettings {
   noteworthyTag: string;      // 重要标记
   autoProgressUpdate: boolean;// 自动更新进度
   viewFields: ViewFieldsConfig; // 视图字段配置
-  savedFilterViews: SavedFilterView[]; // 保存的筛选视图（已废弃，保留兼容性）
   viewTabs: ViewTab[];         // 视图标签页配置
   activeTabId: string | null;  // 当前活动的标签页ID
 }
@@ -302,7 +281,6 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   noteworthyTag: 'noteworthy',
   autoProgressUpdate: true,
   viewFields: DEFAULT_VIEW_FIELDS,
-  savedFilterViews: [],
   viewTabs: [],  // 默认空，用户可以添加
   activeTabId: null
 };

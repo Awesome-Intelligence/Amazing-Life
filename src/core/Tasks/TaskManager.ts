@@ -455,20 +455,6 @@ export class TaskManager {
   }
   
   /**
-   * 获取进行中的任务
-   */
-  getInProgressTasks(): Task[] {
-    return this.getAllTasks().filter(task => task['A-status'] === 'in-progress');
-  }
-  
-  /**
-   * 获取待办任务
-   */
-  getPendingTasks(): Task[] {
-    return this.getAllTasks().filter(task => task['A-status'] === 'pending');
-  }
-  
-  /**
    * 获取已完成任务
    */
   getCompletedTasks(): Task[] {

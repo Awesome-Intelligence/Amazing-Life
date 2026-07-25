@@ -114,19 +114,4 @@ export class TagParser {
     return this.parseLines(content).filter(line => line.isTask);
   }
   
-  /**
-   * 检查内容是否包含目标标签
-   */
-  containsGoalTag(content: string, goalTitle: string): boolean {
-    const tags = this.extractGoalTags(content);
-    return tags.some(tag => tag.toLowerCase() === goalTitle.toLowerCase());
-  }
-  
-  /**
-   * 检查内容是否包含任务标签
-   */
-  containsTaskTag(content: string, taskTitle: string): boolean {
-    const tags = this.extractTaskTags(content);
-    return tags.some(tag => tag.toLowerCase() === taskTitle.toLowerCase());
-  }
 }

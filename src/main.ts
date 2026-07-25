@@ -3,7 +3,7 @@
  * V0.1 - Core life management plugin for Obsidian
  */
 
-import { App, Plugin, PluginSettingTab, Notice, WorkspaceLeaf } from 'obsidian';
+import { App, Plugin, Notice, WorkspaceLeaf } from 'obsidian';
 import { PluginSettings, DEFAULT_SETTINGS } from './types';
 import { TagParser } from './core/Tags/TagParser';
 import { FileStorage } from './storage/FileStorage';
@@ -243,13 +243,8 @@ export default class AmazingLife extends Plugin {
   getSettings(): PluginSettings {
     return this.lifeSettings;
   }
-  
+
   async saveSettings(): Promise<void> {
     await this.saveData(this.lifeSettings);
-  }
-  
-  async saveData(data: any): Promise<void> {
-    this.lifeSettings = data;
-    await super.saveData(data);
   }
 }
