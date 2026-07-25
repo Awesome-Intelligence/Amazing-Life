@@ -204,4 +204,52 @@ export class FileStorage {
   getTaskPath(id: string): string {
     return `${this.getTasksPath()}/${id}.md`;
   }
+  
+  /**
+   * 获取引用目标文件的反向链接
+   */
+  async getBacklinksForGoal(goalId: string): Promise<Array<{
+    file: TFile;
+    content: string;
+    lines: number[];
+  }>> {
+    const goalPath = this.getGoalPath(goalId);
+    const goalFile = this.app.vault.getAbstractFileByPath(goalPath);
+    
+    if (!(goalFile instanceof TFile)) {
+      return [];
+    }
+    
+    const resolvedLinks = this.app.metadataCache.resolvedLinks;
+    const result: Array<{
+      file: TFile;
+      content: string;
+      lines: number[];
+    }> = [];
+    
+    for (const [sourcePath, links] of Object.entries(resolvedLinks)) {
+      if (links[goalPath]) {
+        const file = this.app.vault.getAbstractFileByPath(sourcePath);
+        if (!(file instanceof TFile)) continue;
+        
+        const fileContent = await this.app.vault.read(file);
+        const cache = this.app.metadataCache.getFileCache(file);
+        const linksArray = cache?.links || [];
+        const lines: number[] = [];
+        
+        for (const link of linksArray) {
+          const linkPath = this.app.metadataCache.getFirstLinkpathDest(link.link, sourcePath);
+          if (linkPath && linkPath.path === goalPath) {
+            lines.push(link.position.start.line);
+          }
+        }
+        
+        if (lines.length > 0) {
+          result.push({ file, content: fileContent, lines });
+        }
+      }
+    }
+    
+    return result;
+  }
 }

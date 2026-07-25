@@ -479,4 +479,42 @@ export class GoalManager {
     findDescendants(goalId);
     return descendants;
   }
+  
+  /**
+   * 获取引用目标的记录
+   */
+  async getGoalReferences(goalId: string): Promise<Array<{
+    fileName: string;
+    filePath: string;
+    lineContent: string;
+    lineNumber: number;
+  }>> {
+    const backlinks = await this.storage.getBacklinksForGoal(goalId);
+    const result: Array<{
+      fileName: string;
+      filePath: string;
+      lineContent: string;
+      lineNumber: number;
+    }> = [];
+    
+    for (const backlink of backlinks) {
+      const lines = backlink.content.split('\n');
+      
+      for (const lineNum of backlink.lines) {
+        const lineContent = lines[lineNum]?.trim() || '';
+        if (lineContent) {
+          result.push({
+            fileName: backlink.file.name.replace(/\.md$/, ''),
+            filePath: backlink.file.path,
+            lineContent,
+            lineNumber: lineNum + 1
+          });
+        }
+      }
+    }
+    
+    result.sort((a, b) => b.lineNumber - a.lineNumber);
+    
+    return result;
+  }
 }

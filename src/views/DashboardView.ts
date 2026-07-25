@@ -381,7 +381,7 @@ export class DashboardView extends ItemView {
   }
   
   // 更新当前标签的看板分组方式
-  private async updateActiveTabGroupBy(groupBy: 'level' | 'goalStatus'): Promise<void> {
+  private async updateActiveTabGroupBy(groupBy: 'level' | 'goalStatus' | null): Promise<void> {
     const settings = this.plugin.getSettings();
     const tabs = this.getViewTabs();
     const activeTab = this.getActiveTab();
@@ -389,7 +389,7 @@ export class DashboardView extends ItemView {
     if (activeTab) {
       const tabIndex = tabs.findIndex(t => t.id === activeTab.id);
       if (tabIndex !== -1) {
-        tabs[tabIndex].groupBy = groupBy;
+        tabs[tabIndex].groupBy = groupBy || undefined;
         settings.viewTabs = tabs;
         await this.plugin.saveSettings();
       }
@@ -397,7 +397,7 @@ export class DashboardView extends ItemView {
   }
   
   // 获取当前标签的筛选条件
-  private getCurrentFilters(): { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' } {
+  private getCurrentFilters(): { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | null } {
     const activeTab = this.getActiveTab();
     if (activeTab) {
       return {
@@ -501,6 +501,7 @@ export class DashboardView extends ItemView {
      this.bindEvents();
      this.addStyles();
     this.setTabIcons();
+    this.loadGoalReferences();
   }
   
   private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], weekComplete: number, activeTasks: number): string {
@@ -612,13 +613,16 @@ export class DashboardView extends ItemView {
   }
   
   // 渲染筛选栏
-  private renderFilterBar(currentFilters: { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' }): string {
+  private renderFilterBar(currentFilters: { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | null }): string {
     const hasConditions = this.tempFilterConditions.length > 0;
     
     const groupByOptions = [
+      { value: '', label: '不分组' },
       { value: 'level', label: '按层级' },
       { value: 'goalStatus', label: '按状态' }
     ];
+    
+    const showGroupBy = ['board', 'gallery'].includes(this.currentView);
     
     return `
       <div class="al-filter-bar">
@@ -626,11 +630,11 @@ export class DashboardView extends ItemView {
           ${this.tempShowFilterBuilder ? '收起' : '添加筛选条件'}
         </button>
         
-        ${this.currentView === 'board' ? `
+        ${showGroupBy ? `
           <div class="al-board-group-inline">
             <span class="al-board-group-label">分组：</span>
             <select id="al-board-group-by" class="al-filter-select">
-              ${groupByOptions.map(opt => `<option value="${opt.value}" ${currentFilters.groupBy === opt.value ? 'selected' : ''}>${opt.label}</option>`).join('')}
+              ${groupByOptions.map(opt => `<option value="${opt.value}" ${currentFilters.groupBy === opt.value || (opt.value === '' && !currentFilters.groupBy) ? 'selected' : ''}>${opt.label}</option>`).join('')}
             </select>
           </div>
         ` : ''}
@@ -836,6 +840,16 @@ export class DashboardView extends ItemView {
                 </div>
               `).join('')}</div>`}
               <div class="al-add-goal-link" id="al-add-task-to-goal">+ 添加任务</div>
+            </div>
+            <div class="al-detail-references-block" id="al-references-container">
+              <div class="al-detail-references-header">
+                <span class="al-detail-references-icon">📎</span>
+                <span class="al-detail-references-title">引用记录</span>
+                <span class="al-detail-references-count" id="al-references-count">0</span>
+              </div>
+              <div class="al-detail-references-content" id="al-references-content">
+                <div class="al-detail-references-loading">加载中...</div>
+              </div>
             </div>
           </div>
         </div>
@@ -1056,10 +1070,17 @@ export class DashboardView extends ItemView {
   private renderGalleryView(allGoals: Goal[], allTasks: Task[]): string {
     const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
     const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
+    const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
+    const statusColors: Record<string, string> = { 'active': 'var(--interactive-accent)', 'completed': 'var(--text-green)', 'abandoned': 'var(--text-muted)' };
+    
     if (allGoals.length === 0) return `<div class="al-gallery-view"><div class="al-gallery-section"><div class="al-gallery-section-title">目标 (0)</div><div class="al-gallery-grid"><div class="al-gallery-add-card" id="al-gallery-add-goal"><span class="al-gallery-add-icon">+</span><span>添加目标</span></div></div></div></div>`;
     
     const fields = this.getGoalFields();
-    const cardsHtml = allGoals.map(goal => {
+    const currentFilters = this.getCurrentFilters();
+    const groupBy = currentFilters.groupBy;
+    
+    // 渲染单个卡片
+    const renderCard = (goal: Goal): string => {
       const gt = allTasks.filter(t => t['A-goal'] === goal['A-id']);
       let cardContent = `<div class="al-gallery-card al-gallery-goal" data-goal-id="${goal['A-id']}"><div class="al-gallery-card-header"><span class="al-goal-level" data-level="${goal['A-level']}" style="background:${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span></div>`;
       
@@ -1074,9 +1095,59 @@ export class DashboardView extends ItemView {
       
       cardContent += '</div>';
       return cardContent;
-    }).join('');
+    };
     
-    return `<div class="al-gallery-view"><div class="al-gallery-section"><div class="al-gallery-section-title">目标 (${allGoals.length})</div><div class="al-gallery-grid">${cardsHtml}<div class="al-gallery-add-card" id="al-gallery-add-goal"><span class="al-gallery-add-icon">+</span><span>添加目标</span></div></div></div></div>`;
+    // 不分组
+    if (!groupBy) {
+      const cardsHtml = allGoals.map(goal => renderCard(goal)).join('');
+      return `<div class="al-gallery-view"><div class="al-gallery-section"><div class="al-gallery-section-title">目标 (${allGoals.length})</div><div class="al-gallery-grid">${cardsHtml}<div class="al-gallery-add-card" id="al-gallery-add-goal"><span class="al-gallery-add-icon">+</span><span>添加目标</span></div></div></div></div>`;
+    }
+    
+    // 分组
+    const groups = new Map<string, Goal[]>();
+    
+    if (groupBy === 'level') {
+      // 按层级分组
+      for (const goal of allGoals) {
+        const key = String(goal['A-level']);
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(goal);
+      }
+    } else if (groupBy === 'goalStatus') {
+      // 按状态分组
+      for (const goal of allGoals) {
+        const key = goal['A-status'];
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(goal);
+      }
+    }
+    
+    // 定义分组顺序（统一为字符串）
+    const levelOrder = ['1', '2', '3', '4'];
+    const statusOrder = ['active', 'completed', 'abandoned'];
+    const groupOrder = groupBy === 'level' ? levelOrder : statusOrder;
+    
+    let sectionsHtml = '';
+    for (const key of groupOrder) {
+      const goals = groups.get(key) || [];
+      if (goals.length === 0) continue;
+      
+      const groupLabel = groupBy === 'level' ? levelNames[parseInt(key)] : statusNames[key];
+      const groupColor = groupBy === 'level' ? levelColors[parseInt(key)] : statusColors[key];
+      const cardsHtml = goals.map(goal => renderCard(goal)).join('');
+      
+      sectionsHtml += `
+        <div class="al-gallery-section">
+          <div class="al-gallery-section-title">
+            <span class="al-gallery-section-dot" style="background:${groupColor}"></span>
+            ${groupLabel} (${goals.length})
+          </div>
+          <div class="al-gallery-grid">${cardsHtml}<div class="al-gallery-add-card" data-prefill-level="${groupBy === 'level' ? key : ''}" data-prefill-status="${groupBy === 'goalStatus' ? key : ''}"><span class="al-gallery-add-icon">+</span><span>添加目标</span></div></div>
+        </div>
+      `;
+    }
+    
+    return `<div class="al-gallery-view">${sectionsHtml}</div>`;
   }
   
   private calculateWeekComplete(completedTasks: Task[]): number {
@@ -1346,9 +1417,10 @@ export class DashboardView extends ItemView {
       this.showAddViewDropdown(e as MouseEvent);
     });
     
-    // 看板分组选择
+    // 看板/画廊分组选择
     content.querySelector('#al-board-group-by')?.addEventListener('change', (e) => {
-      const groupBy = (e.target as HTMLSelectElement).value as 'level' | 'goalStatus';
+      const groupByValue = (e.target as HTMLSelectElement).value;
+      const groupBy = groupByValue === '' ? null : groupByValue as 'level' | 'goalStatus';
       this.updateActiveTabGroupBy(groupBy);
       this.render();
     });
@@ -1436,8 +1508,21 @@ export class DashboardView extends ItemView {
     // 列表视图添加按钮
     content.querySelector('#al-list-add-goal')?.addEventListener('click', () => this.showCreateGoalModal());
     
-    // 画廊视图添加按钮
-    content.querySelector('#al-gallery-add-goal')?.addEventListener('click', () => this.showCreateGoalModal());
+    // 画廊视图添加按钮（事件委托，处理分组和不分组的添加按钮）
+    content.querySelectorAll('.al-gallery-add-card').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const el = e.currentTarget as HTMLElement;
+        const prefillLevel = el.getAttribute('data-prefill-level');
+        const prefillStatus = el.getAttribute('data-prefill-status');
+        if (prefillLevel) {
+          this.showCreateGoalModal({ level: parseInt(prefillLevel) });
+        } else if (prefillStatus) {
+          this.showCreateGoalModal({ status: prefillStatus as 'active' | 'completed' | 'abandoned' });
+        } else {
+          this.showCreateGoalModal();
+        }
+      });
+    });
     
     // 看板列添加按钮（事件委托）
     content.querySelectorAll('.al-add-goal-btn').forEach(btn => {
@@ -1681,6 +1766,68 @@ export class DashboardView extends ItemView {
     const task = this.plugin.getTaskManager().getTask(taskId);
     if (!task) return;
     try { if (task['A-status'] === 'completed') { await this.plugin.getTaskManager().updateTask(taskId, { status: 'pending' }); } else { await this.plugin.getTaskManager().completeTask(taskId); } this.loadAndRender(); } catch (error) { new Notice('更新失败: ' + (error as Error).message); }
+  }
+  
+  private async loadGoalReferences(): Promise<void> {
+    if (this.currentView !== 'goal-detail' || !this.selectedGoalId) {
+      return;
+    }
+    
+    const container = this.contentEl.querySelector('#al-references-container');
+    const contentEl = this.contentEl.querySelector('#al-references-content');
+    const countEl = this.contentEl.querySelector('#al-references-count');
+    
+    if (!container || !contentEl || !countEl) {
+      return;
+    }
+    
+    try {
+      const references = await this.plugin.getGoalManager().getGoalReferences(this.selectedGoalId);
+      const goal = this.getGoal(this.selectedGoalId);
+      const goalTitle = goal ? goal['A-title'] : '';
+      
+      countEl.textContent = references.length.toString();
+      
+      if (references.length === 0) {
+        contentEl.innerHTML = `<div class="al-detail-references-empty"><span class="al-empty-text">暂无引用记录</span></div>`;
+        return;
+      }
+      
+      const referencesHtml = references.map(ref => {
+        let lineContent = ref.lineContent;
+        if (goalTitle) {
+          lineContent = lineContent.replace(new RegExp(goalTitle, 'g'), `<span class="al-reference-highlight">${goalTitle}</span>`);
+        }
+        
+        return `
+          <div class="al-detail-reference-item" data-file-path="${ref.filePath}">
+            <div class="al-reference-file-info">
+              <span class="al-reference-file-icon">📄</span>
+              <span class="al-reference-file-name">${ref.fileName}</span>
+              <span class="al-reference-line-number">${ref.lineNumber}</span>
+            </div>
+            <div class="al-reference-content">${lineContent}</div>
+          </div>
+        `;
+      }).join('');
+      
+      contentEl.innerHTML = referencesHtml;
+      
+      contentEl.querySelectorAll('.al-detail-reference-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const filePath = item.getAttribute('data-file-path');
+          if (filePath) {
+            const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+            if (file) {
+              this.plugin.app.workspace.openLinkText(file.path, '');
+            }
+          }
+        });
+      });
+    } catch (error) {
+      console.error('加载引用记录失败:', error);
+      contentEl.innerHTML = `<div class="al-detail-references-error">加载引用记录失败</div>`;
+    }
   }
   
   private bindCalendarEvents(content: HTMLElement): void {
@@ -2221,7 +2368,7 @@ export class DashboardView extends ItemView {
       .al-detail-view{flex:1;display:flex;flex-direction:column;overflow:hidden}.al-detail-header{display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-detail-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--text-secondary);transition:all .15s}.al-detail-icon:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-detail-delete-btn{color:var(--text-red)}.al-detail-delete-btn:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent);color:var(--text-red)}.al-detail-title{display:flex;align-items:center;gap:12px;flex:1}.al-detail-title h2{font-size:20px;font-weight:600;color:var(--text-primary);margin:0}.al-detail-content{flex:1;display:flex;overflow:hidden}.al-detail-main{flex:1;padding:24px;overflow-y:auto}.al-detail-section{margin-bottom:24px}.al-detail-section h3{font-size:14px;font-weight:600;color:var(--text-secondary);margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-detail-progress-section{margin-bottom:20px;padding:16px;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color)}.al-detail-progress-label{font-size:13px;color:var(--text-secondary);margin-bottom:8px}.al-detail-progress-large{display:flex;align-items:center;gap:12px}.al-progress-bar-large{flex:1;height:12px;background:var(--background-modifier-border);border-radius:6px;overflow:hidden}.al-progress-fill-large{height:100%;background:var(--interactive-accent);border-radius:6px;transition:width .3s}.al-detail-progress-value{font-size:16px;font-weight:700;color:var(--text-primary);min-width:48px;text-align:right}.al-detail-description-section{margin-bottom:20px}.al-detail-action-row{display:flex;align-items:center;gap:10px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-action-row:hover{border-color:var(--interactive-accent);background:var(--background-modifier-hover)}.al-detail-action-row-add{background:color-mix(in srgb,var(--interactive-accent) 10%,transparent);border-color:var(--interactive-accent);border-style:dashed}.al-detail-action-row-add:hover{background:color-mix(in srgb,var(--interactive-accent) 15%,transparent);border-style:solid}.al-detail-action-icon{font-size:18px}.al-detail-action-text{font-size:14px;color:var(--text-secondary);flex:1;text-align:left}.al-detail-stats{display:flex;gap:16px}.al-detail-stat{flex:1;display:flex;flex-direction:column;align-items:center;padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color)}.al-detail-stat-num{font-size:28px;font-weight:700;color:var(--text-primary)}.al-detail-stat-label{font-size:12px;color:var(--text-secondary);margin-top:4px}.al-detail-stat-success .al-detail-stat-num{color:var(--text-green)}.al-detail-tasks{display:flex;flex-direction:column;gap:8px}.al-detail-task{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-task:hover{border-color:var(--interactive-accent)}.al-detail-task-content{flex:1}.al-detail-task-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:4px}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary)}.al-action-btn-success{background:var(--text-green);color:#fff;border:none;border-radius:6px;cursor:pointer}.al-action-btn-danger{background:transparent;color:var(--text-red);border:1px solid var(--text-red);border-radius:6px;cursor:pointer}.al-task-actions{display:flex;flex-direction:column;gap:8px}.al-task-goal-card{padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-task-goal-card:hover{border-color:var(--interactive-accent)}.al-task-goal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-task-goal-progress{display:flex;align-items:center;gap:8px}.al-task-goal-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-task-goal-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-task-goal-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}
       .al-table-view{flex:1;padding:16px;overflow:auto}.al-table-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-table{width:100%;border-collapse:collapse;background:var(--background-secondary);border-radius:10px;overflow:hidden}.al-table th{text-align:left;padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}.al-table td{padding:12px 16px;border-bottom:1px solid var(--border-color);font-size:13px;color:var(--text-primary)}.al-table-row:hover{background:var(--background-modifier-hover);cursor:pointer}.al-table-row.completed td{color:var(--text-muted)}.al-table-row.completed .al-table-title{text-decoration:line-through}.al-table-title{font-weight:600}.al-goal-tag{font-weight:500;font-size:12px;cursor:pointer}.al-goal-tag:hover{text-decoration:underline}.al-status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}.al-status-badge.status-pending,.al-status-badge.status-active{background:var(--interactive-accent);color:#fff}.al-status-badge.status-in-progress{background:color-mix(in srgb,var(--text-blue) 20%,transparent);color:var(--text-blue)}.al-status-badge.status-completed{background:color-mix(in srgb,var(--text-green) 20%,transparent);color:var(--text-green)}.al-status-badge.status-abandoned,.al-status-badge.status-cancelled{background:var(--background-modifier-border);color:var(--text-muted)}.al-level-dot{width:10px;height:10px;border-radius:50%;display:inline-block}.al-progress-text{font-weight:500}
       .al-board-group-label{font-size:12px;color:var(--text-secondary)}.al-board-view{display:flex;flex-direction:row;flex:1;gap:12px;padding:16px;overflow-x:auto;min-height:0;background:var(--background-primary);align-items:stretch}.al-board-empty{display:flex;justify-content:center;align-items:center;width:100%}.al-board-column{flex:0 0 260px;display:flex;flex-direction:column;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;max-height:100%}.al-board-column-header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:2px solid var(--column-accent,var(--interactive-accent));background:var(--background-primary);flex-shrink:0}.al-board-column-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);overflow:visible;flex-wrap:wrap;white-space:nowrap}.al-board-column-body{flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:150px}.al-level-badge{font-size:12px;padding:3px 10px;border-radius:6px;color:#fff;font-weight:600;white-space:nowrap}.al-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.al-goal-card{padding:14px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:grab;transition:all .15s;margin-bottom:8px}.al-goal-card:hover{border-color:var(--interactive-accent);box-shadow:0 2px 8px rgba(0,0,0,0.1)}.al-goal-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:10px;line-height:1.3}.al-goal-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:10px}.al-goal-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-goal-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-goal-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-goal-card-meta{display:flex;gap:12px;font-size:12px;color:var(--text-muted)}.al-goal-card.dragging{opacity:0.3;cursor:grabbing}.drag-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:0.9;transform:rotate(2deg);box-shadow:0 8px 24px rgba(0,0,0,0.2)}.al-board-column.drop-target{border:2px dashed var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 10%,transparent)}
-      .al-gallery-view{flex:1;padding:16px;overflow-y:auto}.al-gallery-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-gallery-section{margin-bottom:24px}.al-gallery-section-title{font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}.al-gallery-card{position:relative;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);padding:16px;transition:all .2s;cursor:pointer}.al-gallery-card:hover{border-color:var(--interactive-accent);box-shadow:0 4px 12px rgba(0,0,0,.1);transform:translateY(-2px)}.al-gallery-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.al-gallery-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:12px;line-height:1.4}.al-gallery-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-gallery-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-gallery-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent);border-radius:3px}.al-gallery-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-gallery-card-meta{font-size:11px;color:var(--text-secondary)}.al-gallery-card-tasks{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color);font-size:12px;color:var(--text-secondary)}
+      .al-gallery-view{flex:1;padding:16px;overflow-y:auto}.al-gallery-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-gallery-section{margin-bottom:24px}.al-gallery-section-title{font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:8px}.al-gallery-section-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}.al-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}.al-gallery-card{position:relative;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);padding:16px;transition:all .2s;cursor:pointer}.al-gallery-card:hover{border-color:var(--interactive-accent);box-shadow:0 4px 12px rgba(0,0,0,.1);transform:translateY(-2px)}.al-gallery-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.al-gallery-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:12px;line-height:1.4}.al-gallery-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-gallery-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-gallery-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent);border-radius:3px}.al-gallery-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-gallery-card-meta{font-size:11px;color:var(--text-secondary)}.al-gallery-card-tasks{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color);font-size:12px;color:var(--text-secondary)}
       .al-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:12px;margin:16px 0}.al-stat{flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding:20px 16px;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color)}.al-stat-warning{border-color:var(--text-red);background:color-mix(in srgb,var(--text-red) 5%,var(--background-secondary))}.al-stat-num{font-size:32px;font-weight:700;color:var(--text-primary);line-height:1}.al-stat-label{font-size:12px;color:var(--text-secondary);margin-top:8px}
       .al-panel{flex-shrink:0;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;margin:16px 0}.al-panel-overdue{border-color:var(--text-red);background:color-mix(in srgb,var(--text-red) 3%,var(--background-secondary))}.al-panel-header{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--border-color);background:var(--background-primary);flex-shrink:0}.al-panel-header span:first-child{font-size:16px}.al-panel-header span:nth-child(2){font-size:14px;font-weight:500;color:var(--text-primary)}.al-panel-count{margin-left:auto;font-size:12px;padding:2px 8px;background:var(--background-secondary);color:var(--text-secondary);border-radius:10px}.al-count-overdue{background:color-mix(in srgb,var(--text-red) 15%,transparent);color:var(--text-red)}.al-panel-body{max-height:300px;padding:12px;overflow-y:auto;display:flex;flex-direction:column;gap:8px}
       .al-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;gap:8px;color:var(--text-secondary)}.al-empty span{font-size:40px;opacity:.5}.al-empty-desc{font-size:12px;color:var(--text-muted)}
@@ -2235,7 +2382,7 @@ export class DashboardView extends ItemView {
       .al-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center;min-width:280px}.al-cal-day-header{font-size:11px;color:var(--text-secondary);padding:4px}.al-cal-day{font-size:12px;padding:6px;border-radius:4px;cursor:pointer;transition:all .15s;color:var(--text-primary)}.al-cal-day:hover{background:var(--background-modifier-hover)}.al-cal-day.empty{background:transparent;cursor:default}.al-cal-day.today{background:var(--interactive-accent);color:#fff}.al-cal-day.day-selected{background:var(--interactive-accent-faint,color-mix(in srgb,var(--interactive-accent) 20%,transparent));border:1px solid var(--interactive-accent)}.al-cal-day.today.day-selected{background:var(--interactive-accent);color:#fff}.al-cal-day.week-selected{background:var(--interactive-accent-faint,color-mix(in srgb,var(--interactive-accent) 20%,transparent));border:1px solid var(--interactive-accent)}.al-cal-day.today.week-selected{background:var(--interactive-accent);color:#fff}
       .al-cal-month-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;min-width:200px}.al-cal-month-item{padding:10px;text-align:center;border-radius:6px;border:1px solid var(--border-color);cursor:pointer;font-size:12px;color:var(--text-secondary);transition:all .15s}.al-cal-month-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-month-item.current{border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}.al-cal-month-item.selected{border-color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent);font-weight:600}
       .al-cal-year-display{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:8px 0;min-width:200px}.al-cal-year-item{padding:16px 8px;text-align:center;border-radius:8px;border:1px solid var(--border-color);cursor:pointer;font-size:16px;font-weight:600;color:var(--text-secondary);transition:all .15s}.al-cal-year-item:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-cal-year-item.current{font-size:20px;border-color:var(--interactive-accent);background:var(--interactive-accent);color:#fff}.al-cal-year-item.selected{border-color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent)}
-      .al-filter-bar{display:flex;gap:10px;padding:10px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);align-items:center;flex-wrap:wrap}.al-filter-toggle{padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-toggle:hover{border-color:var(--interactive-accent)}.al-filter-toggle.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-filter-btn{padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-btn:hover{border-color:var(--interactive-accent)}.al-filter-btn-danger{color:var(--text-red);border-color:var(--text-red)}.al-filter-btn-danger:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent)}.al-filter-count{padding:4px 10px;background:var(--interactive-accent);color:#fff;border-radius:10px;font-size:11px}.al-filter-spacer{flex:1}.al-filter-settings-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-secondary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-settings-btn:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-board-group-inline{display:flex;align-items:center;gap:6px}.al-filter-select{padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer}
+      .al-filter-bar{display:flex;gap:10px;padding:10px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color);align-items:center;flex-wrap:wrap}.al-filter-toggle{padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-toggle:hover{border-color:var(--interactive-accent)}.al-filter-toggle.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-filter-btn{padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-btn:hover{border-color:var(--interactive-accent)}.al-filter-btn-danger{color:var(--text-red);border-color:var(--text-red)}.al-filter-btn-danger:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent)}.al-filter-count{padding:4px 10px;background:var(--interactive-accent);color:#fff;border-radius:10px;font-size:11px}.al-filter-spacer{flex:1}.al-filter-settings-btn{display:inline-flex;align-items:center;gap:4px;padding:6px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-secondary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-settings-btn:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-board-group-inline{display:flex;align-items:center;gap:6px}.al-filter-select{padding:6px 10px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer}
       .al-filter-builder{padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color)}.al-filter-logic-row{display:flex;align-items:center;gap:8px;margin-bottom:12px}.al-filter-logic-label{font-size:12px;color:var(--text-secondary)}.al-filter-logic-btn{padding:4px 10px;border:1px solid var(--border-color);border-radius:4px;background:transparent;color:var(--text-secondary);font-size:11px;cursor:pointer;transition:all .15s}.al-filter-logic-btn:hover{border-color:var(--interactive-accent);color:var(--text-primary)}.al-filter-logic-btn.active{background:var(--interactive-accent);border-color:var(--interactive-accent);color:#fff}.al-filter-conditions{display:flex;flex-direction:column;gap:8px}.al-filter-condition{display:flex;align-items:center;gap:8px;padding:8px;background:var(--background-secondary);border-radius:6px;border:1px solid var(--border-color)}.al-filter-field-select,.al-filter-operator-select,.al-filter-value-select{padding:6px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--background-primary);color:var(--text-primary);font-size:12px;cursor:pointer}.al-filter-field-select:hover,.al-filter-operator-select:hover,.al-filter-value-select:hover{border-color:var(--interactive-accent)}.al-filter-value-input{padding:6px 8px;border:1px solid var(--border-color);border-radius:4px;background:var(--background-primary);color:var(--text-primary);font-size:12px;min-width:120px}.al-filter-value-input:hover{border-color:var(--interactive-accent)}.al-filter-value-input:focus{outline:none;border-color:var(--interactive-accent)}.al-filter-date-input{min-width:140px}.al-filter-no-value{padding:6px 8px;color:var(--text-muted);font-size:12px}.al-filter-remove-btn{width:24px;height:24px;border:none;border-radius:4px;background:transparent;color:var(--text-muted);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:14px;margin-left:auto}.al-filter-remove-btn:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent);color:var(--text-red)}.al-filter-add-btn{width:100%;padding:8px;margin-top:8px;border:1px dashed var(--border-color);border-radius:6px;background:transparent;color:var(--text-secondary);font-size:12px;cursor:pointer;transition:all .15s}.al-filter-add-btn:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 5%,transparent)}
       .al-board-column-footer{padding:8px;border-top:1px dashed var(--border-color)}.al-add-goal-btn{display:flex;align-items:center;justify-content:center;gap:4px;padding:8px;border:1px dashed var(--border-color);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:12px;transition:all .15s}.al-add-goal-btn:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:var(--background-modifier-hover)}
       .al-add-goal-link{display:block;padding:12px 16px;color:var(--text-muted);cursor:pointer;text-align:center;border-top:1px solid var(--border-color);font-size:13px;transition:all .15s}.al-add-goal-link:hover{color:var(--text-normal);background:var(--background-secondary)}
@@ -2244,6 +2391,7 @@ export class DashboardView extends ItemView {
       .al-detail-description-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-description-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-description-icon{font-size:16px}.al-detail-description-title{font-size:13px;font-weight:600;color:var(--text-secondary)}.al-detail-description-content{padding:16px;color:var(--text-muted);font-size:14px;line-height:1.6;cursor:pointer;min-height:60px}.al-detail-description-content:hover{color:var(--text-primary)}.al-detail-description-block .al-field-edit-textarea{width:100%;max-width:none}
       .al-progress-slider-container{display:flex;align-items:center;gap:12px;width:100%;max-width:280px}.al-progress-slider{-webkit-appearance:none;width:100%;height:6px;border-radius:3px;background:var(--background-modifier-border);outline:none}.al-progress-slider::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--interactive-accent);cursor:pointer;border:2px solid var(--background-primary);box-shadow:0 2px 4px rgba(0,0,0,0.2)}.al-progress-slider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--interactive-accent);cursor:pointer;border:2px solid var(--background-primary);box-shadow:0 2px 4px rgba(0,0,0,0.2)}.al-progress-value{font-size:14px;font-weight:500;color:var(--text-primary);min-width:40px;text-align:right}
       .al-detail-tasks-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-tasks-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-tasks-icon{font-size:16px}.al-detail-tasks-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-detail-tasks-count{background:var(--interactive-accent);color:#fff;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px}.al-detail-task-summary{display:flex;gap:20px;padding:10px 16px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--border-color)}.al-detail-tasks{display:flex;flex-direction:column;gap:2px;padding:8px 16px}.al-detail-task{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;cursor:pointer;transition:all .15s}.al-detail-task:hover{background:var(--background-modifier-hover)}.al-detail-task .task-list-item-checkbox{margin:0 8px 0 0;width:16px;height:16px;cursor:pointer;vertical-align:middle;align-self:center}.al-detail-tasks-empty{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-task-title{flex:1;font-size:14px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-priority{font-size:13px;font-weight:500;flex-shrink:0;min-width:50px;text-align:right}
+      .al-detail-references-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-references-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-references-icon{font-size:16px}.al-detail-references-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-detail-references-count{background:var(--interactive-accent);color:#fff;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px}.al-detail-references-content{padding:8px 16px;max-height:280px;overflow-y:auto}.al-detail-references-loading{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-references-empty{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-reference-item{padding:10px 12px;border-radius:6px;cursor:pointer;transition:all .15s;margin-bottom:4px}.al-detail-reference-item:hover{background:var(--background-modifier-hover)}.al-reference-file-info{display:flex;align-items:center;gap:6px;margin-bottom:6px}.al-reference-file-icon{font-size:12px;color:var(--text-muted)}.al-reference-file-name{font-size:12px;color:var(--interactive-accent);font-weight:500}.al-reference-line-number{font-size:11px;color:var(--text-muted);padding:1px 4px;background:var(--background-primary);border-radius:3px}.al-reference-content{font-size:13px;color:var(--text-secondary);line-height:1.5;white-space:pre-wrap;word-break:break-all}.al-reference-highlight{background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent);padding:1px 3px;border-radius:3px;font-weight:500}
       .al-gallery-add-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:120px;border:1px dashed var(--border-color);border-radius:10px;color:var(--text-muted);cursor:pointer;transition:all .15s}.al-gallery-add-card:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:var(--background-secondary)}.al-gallery-add-card .al-gallery-add-icon{font-size:28px;opacity:.5}.al-gallery-add-card:hover .al-gallery-add-icon{opacity:1}
       .al-modal-task-detail .al-modal-box{max-width:500px;width:90%}.al-modal-task-detail .al-modal-body{padding:20px;max-height:70vh;overflow-y:auto}.al-task-detail-title input{width:100%;font-size:18px;font-weight:600;border:1px solid var(--border-color);border-radius:6px;padding:12px;background:var(--background-primary);color:var(--text-primary);box-sizing:border-box}.al-task-detail-title input:focus{outline:none;border-color:var(--interactive-accent)}.al-task-detail-fields{display:flex;flex-direction:column;gap:12px;margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color)}.al-task-detail-field{display:flex;align-items:center;gap:12px}.al-task-detail-field label{width:100px;flex-shrink:0;font-size:14px;color:var(--text-secondary)}.al-task-detail-field select,.al-task-detail-field input{flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px}.al-task-detail-field select:focus,.al-task-detail-field input:focus{outline:none;border-color:var(--interactive-accent)}.al-task-detail-desc-section{margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color)}.al-task-detail-desc-section label{display:block;font-size:14px;color:var(--text-secondary);margin-bottom:8px}.al-task-detail-desc-section textarea{width:100%;min-height:100px;padding:12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px;resize:vertical;box-sizing:border-box}.al-task-detail-desc-section textarea:focus{outline:none;border-color:var(--interactive-accent)}.al-modal-footer{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-top:1px solid var(--border-color);background:var(--background-secondary)}.al-modal-footer .al-btn-danger{background:transparent;border:1px solid var(--text-red);color:var(--text-red);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:14px}.al-modal-footer .al-btn-danger:hover{background:var(--text-red);color:#fff}.al-modal-footer .al-btn-secondary{background:transparent;border:1px solid var(--border-color);color:var(--text-secondary);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:14px}.al-modal-footer .al-btn-secondary:hover{background:var(--background-modifier-hover)}
       `;
