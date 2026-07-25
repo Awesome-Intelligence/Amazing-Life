@@ -230,6 +230,19 @@ export const TASK_FIELD_LABELS: Record<TaskField, string> = {
   'completed': '完成时间'
 };
 
+// 视图标签页类型
+export type ViewTabType = 'list' | 'board' | 'gallery';
+
+// 视图标签页配置
+export interface ViewTab {
+  id: string;
+  name: string;               // 用户自定义名称
+  type: ViewTabType;          // 视图类型
+  groupBy?: 'level' | 'goalStatus';  // 看板分组方式
+  filters: FilterCondition[];  // 筛选条件
+  filterLogic: FilterLogic;    // 筛选逻辑
+}
+
 // 设置接口
 export interface PluginSettings {
   dataPath: string;           // 插件数据目录
@@ -243,7 +256,9 @@ export interface PluginSettings {
   noteworthyTag: string;      // 重要标记
   autoProgressUpdate: boolean;// 自动更新进度
   viewFields: ViewFieldsConfig; // 视图字段配置
-  savedFilterViews: SavedFilterView[]; // 保存的筛选视图
+  savedFilterViews: SavedFilterView[]; // 保存的筛选视图（已废弃，保留兼容性）
+  viewTabs: ViewTab[];         // 视图标签页配置
+  activeTabId: string | null;  // 当前活动的标签页ID
 }
 
 // 层级名称映射
@@ -284,5 +299,35 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   noteworthyTag: 'noteworthy',
   autoProgressUpdate: true,
   viewFields: DEFAULT_VIEW_FIELDS,
-  savedFilterViews: []
+  savedFilterViews: [],
+  viewTabs: [],  // 默认空，用户可以添加
+  activeTabId: null
 };
+
+// 默认视图标签页
+export function getDefaultViewTabs(): ViewTab[] {
+  return [
+    {
+      id: 'tab_list',
+      name: '列表',
+      type: 'list',
+      filters: [],
+      filterLogic: 'and'
+    },
+    {
+      id: 'tab_board',
+      name: '看板',
+      type: 'board',
+      groupBy: 'level',
+      filters: [],
+      filterLogic: 'and'
+    },
+    {
+      id: 'tab_gallery',
+      name: '画廊',
+      type: 'gallery',
+      filters: [],
+      filterLogic: 'and'
+    }
+  ];
+}

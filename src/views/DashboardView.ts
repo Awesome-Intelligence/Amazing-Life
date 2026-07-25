@@ -3,7 +3,7 @@
  */
 
 import { ItemView, Notice, TFile, setIcon } from 'obsidian';
-import { Goal, Task, GoalLevel, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FilterState, SavedFilterView, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS } from '../types';
+import { Goal, Task, GoalLevel, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FilterState, SavedFilterView, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS, ViewTab, ViewTabType, getDefaultViewTabs } from '../types';
 import AmazingLife from '../main';
 
 export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
@@ -23,11 +23,6 @@ export class DashboardView extends ItemView {
   private selectedMonth: string | null = null;
   private selectedYear: string | null = null;
   private selectedDay: string | null = null;
-  private boardGroupBy: BoardGroupBy = 'level';
-  // 筛选相关
-  private filterConditions: FilterCondition[] = [];
-  private filterLogic: FilterLogic = 'and';
-  private showFilterBuilder: boolean = false;
   // 拖拽相关
   private draggingGoalId: string | null = null;
   private draggingGoalEl: HTMLElement | null = null;
@@ -35,10 +30,18 @@ export class DashboardView extends ItemView {
   private dropTargetColumn: string | null = null;
   // 导航历史
   private viewHistory: Array<{ view: ViewType; goalId?: string | null; taskId?: string | null }> = [];
+  // 临时筛选状态（用于渲染和事件处理）
+  private tempFilterConditions: FilterCondition[] = [];
+  private tempFilterLogic: FilterLogic = 'and';
+  private tempShowFilterBuilder: boolean = false;
   
   // 生成唯一ID
   private generateFilterId(): string {
     return 'filter_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+  }
+  
+  private generateTabId(): string {
+    return 'tab_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
   }
   
   constructor(leaf: any, plugin: AmazingLife) {
@@ -102,6 +105,276 @@ export class DashboardView extends ItemView {
     }
   }
   
+  // ========== 标签页管理方法 ==========
+  
+  // 获取所有标签页
+  private getViewTabs(): ViewTab[] {
+    const settings = this.plugin.getSettings();
+    // 如果没有标签页，初始化默认标签
+    if (!settings.viewTabs || settings.viewTabs.length === 0) {
+      settings.viewTabs = getDefaultViewTabs();
+      this.plugin.saveSettings();
+    }
+    return settings.viewTabs;
+  }
+  
+  // 获取当前活动标签
+  private getActiveTab(): ViewTab | null {
+    const settings = this.plugin.getSettings();
+    const tabs = this.getViewTabs();
+    if (settings.activeTabId) {
+      return tabs.find(t => t.id === settings.activeTabId) || null;
+    }
+    // 默认返回第一个
+    return tabs[0] || null;
+  }
+  
+  // 切换到指定标签
+  private switchTab(tabId: string): void {
+    const settings = this.plugin.getSettings();
+    settings.activeTabId = tabId;
+    this.plugin.saveSettings();
+    
+    const tab = this.getViewTabs().find(t => t.id === tabId);
+    if (tab) {
+      this.currentView = tab.type;
+      // 加载该标签的筛选条件到临时状态
+      this.tempFilterConditions = [...(tab.filters || [])];
+      this.tempFilterLogic = tab.filterLogic || 'and';
+      this.tempShowFilterBuilder = false;
+    }
+    this.render();
+  }
+  
+  // 添加新标签
+  private async addTab(type: ViewTabType, name?: string): Promise<void> {
+    const tabs = this.getViewTabs();
+    const defaultNames: Record<ViewTabType, string> = {
+      'list': '新列表',
+      'board': '新看板',
+      'gallery': '新画廊'
+    };
+    
+    const newTab: ViewTab = {
+      id: this.generateTabId(),
+      name: name || defaultNames[type],
+      type: type,
+      groupBy: type === 'board' ? 'level' : undefined,
+      filters: [],
+      filterLogic: 'and'
+    };
+    
+    tabs.push(newTab);
+    const settings = this.plugin.getSettings();
+    settings.viewTabs = tabs;
+    settings.activeTabId = newTab.id;
+    await this.plugin.saveSettings();
+    
+    this.currentView = type;
+    this.render();
+  }
+  
+  // 删除标签
+  private async removeTab(tabId: string): Promise<void> {
+    const settings = this.plugin.getSettings();
+    let tabs = this.getViewTabs();
+    
+    // 不能删除最后一个
+    if (tabs.length <= 1) {
+      new Notice('至少保留一个视图标签');
+      return;
+    }
+    
+    tabs = tabs.filter(t => t.id !== tabId);
+    settings.viewTabs = tabs;
+    
+    // 如果删除的是当前活动标签，切换到第一个
+    if (settings.activeTabId === tabId) {
+      settings.activeTabId = tabs[0].id;
+      this.currentView = tabs[0].type;
+    }
+    
+    await this.plugin.saveSettings();
+    this.render();
+  }
+  
+  // 重命名标签
+  private async renameTab(tabId: string, newName: string): Promise<void> {
+    const settings = this.plugin.getSettings();
+    const tabs = this.getViewTabs();
+    
+    const tab = tabs.find(t => t.id === tabId);
+    if (tab) {
+      tab.name = newName;
+      settings.viewTabs = tabs;
+      await this.plugin.saveSettings();
+      this.render();
+    }
+  }
+  
+  // 显示标签上下文菜单（长按触发）
+  private showTabContextMenu(nameEl: HTMLElement, tabId: string): void {
+    const rect = nameEl.getBoundingClientRect();
+    
+    const existingMenu = document.querySelector('.al-tab-context-menu');
+    if (existingMenu) existingMenu.remove();
+    
+    const menu = document.createElement('div');
+    menu.className = 'al-tab-context-menu show';
+    menu.innerHTML = `
+      <button class="al-tab-context-option" data-action="rename">
+        <span class="al-tab-icon" data-icon="pencil"></span>
+        <span>重命名</span>
+      </button>
+      <button class="al-tab-context-option" data-action="close">
+        <span class="al-tab-icon" data-icon="x"></span>
+        <span>关闭</span>
+      </button>
+    `;
+    
+    menu.style.left = rect.left + 'px';
+    menu.style.top = (rect.bottom + 4) + 'px';
+    
+    document.body.appendChild(menu);
+    
+    setTimeout(() => {
+      menu.querySelectorAll('.al-tab-icon').forEach(iconEl => {
+        const iconName = iconEl.getAttribute('data-icon');
+        if (iconName) {
+          try {
+            setIcon(iconEl as HTMLElement, iconName);
+          } catch (e) {}
+        }
+      });
+    }, 0);
+    
+    menu.querySelectorAll('.al-tab-context-option').forEach(opt => {
+      opt.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const action = (opt as HTMLElement).getAttribute('data-action');
+        if (action === 'rename') {
+          menu.remove();
+          this.editTabName(nameEl, tabId);
+        } else if (action === 'close') {
+          menu.remove();
+          this.removeTab(tabId);
+        }
+      });
+    });
+    
+    const closeHandler = (event: MouseEvent) => {
+      if (!menu.contains(event.target as Node)) {
+        menu.remove();
+        document.removeEventListener('click', closeHandler);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('click', closeHandler);
+    }, 0);
+  }
+  
+  // 编辑标签名称（双击触发）
+  private editTabName(nameEl: HTMLElement, tabId: string): void {
+    const currentName = nameEl.textContent || '';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = currentName;
+    input.className = 'al-tab-name-edit';
+    
+    // 替换为输入框
+    nameEl.replaceWith(input);
+    
+    // 自动选中全部文本
+    setTimeout(() => {
+      input.select();
+      input.focus();
+    }, 0);
+    
+    // 确认修改（回车）
+    input.addEventListener('keydown', async (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const newName = input.value.trim();
+        if (newName && newName !== currentName) {
+          await this.renameTab(tabId, newName);
+        } else {
+          // 恢复原名称
+          input.replaceWith(nameEl);
+        }
+      } else if (e.key === 'Escape') {
+        // 取消编辑
+        input.replaceWith(nameEl);
+      }
+    });
+    
+    // 点击外部取消编辑
+    const blurHandler = async () => {
+      const newName = input.value.trim();
+      if (newName && newName !== currentName) {
+        await this.renameTab(tabId, newName);
+      } else {
+        input.replaceWith(nameEl);
+      }
+      document.removeEventListener('click', checkClickOutside);
+    };
+    
+    const checkClickOutside = (e: MouseEvent) => {
+      if (!input.contains(e.target as Node)) {
+        blurHandler();
+      }
+    };
+    
+    setTimeout(() => {
+      document.addEventListener('click', checkClickOutside);
+    }, 0);
+  }
+  
+  // 更新当前标签的筛选条件
+  private async updateActiveTabFilters(conditions: FilterCondition[], logic: FilterLogic): Promise<void> {
+    const settings = this.plugin.getSettings();
+    const tabs = this.getViewTabs();
+    const activeTab = this.getActiveTab();
+    
+    if (activeTab) {
+      const tabIndex = tabs.findIndex(t => t.id === activeTab.id);
+      if (tabIndex !== -1) {
+        tabs[tabIndex].filters = conditions;
+        tabs[tabIndex].filterLogic = logic;
+        settings.viewTabs = tabs;
+        await this.plugin.saveSettings();
+      }
+    }
+  }
+  
+  // 更新当前标签的看板分组方式
+  private async updateActiveTabGroupBy(groupBy: 'level' | 'goalStatus'): Promise<void> {
+    const settings = this.plugin.getSettings();
+    const tabs = this.getViewTabs();
+    const activeTab = this.getActiveTab();
+    
+    if (activeTab) {
+      const tabIndex = tabs.findIndex(t => t.id === activeTab.id);
+      if (tabIndex !== -1) {
+        tabs[tabIndex].groupBy = groupBy;
+        settings.viewTabs = tabs;
+        await this.plugin.saveSettings();
+      }
+    }
+  }
+  
+  // 获取当前标签的筛选条件
+  private getCurrentFilters(): { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' } {
+    const activeTab = this.getActiveTab();
+    if (activeTab) {
+      return {
+        conditions: activeTab.filters || [],
+        logic: activeTab.filterLogic || 'and',
+        groupBy: activeTab.groupBy || 'level'
+      };
+    }
+    return { conditions: [], logic: 'and', groupBy: 'level' };
+  }
+  
   private getCurrentViewType(): 'dashboard' | 'board' | 'gallery' | 'list' | 'goal' {
     if (this.currentView === 'board') return 'board';
     if (this.currentView === 'gallery') return 'gallery';
@@ -148,6 +421,29 @@ export class DashboardView extends ItemView {
     const weekComplete = this.calculateWeekComplete(completedTasks);
     const activeTasks = allTasks.filter(t => t['A-status'] !== 'completed' && t['A-status'] !== 'cancelled').length;
     
+    // 获取当前筛选和分组设置
+    const currentFilters = this.getCurrentFilters();
+    
+    // 渲染视图标签页
+    const tabs = this.getViewTabs();
+    const activeTab = this.getActiveTab();
+    const isDashboard = this.currentView === 'dashboard';
+    const viewTabsHtml = tabs.map(tab => {
+      // 在仪表盘首页时，所有视图标签都不显示 active 状态
+      const isActive = !isDashboard && activeTab?.id === tab.id;
+      const icons: Record<ViewTabType, string> = {
+        'list': 'list',
+        'board': 'columns',
+        'gallery': 'gallery-horizontal'
+      };
+      return `
+        <button class="al-view-tab ${isActive ? 'active' : ''}" data-tab-id="${tab.id}">
+          <span class="al-tab-icon" data-icon="${icons[tab.type]}"></span>
+          <span class="al-tab-name" data-tab-id="${tab.id}" title="右键菜单 / 长按菜单">${tab.name}</span>
+        </button>
+      `;
+    }).join('');
+    
     content.innerHTML = `
       <div class="al-page">
         <div class="al-header">
@@ -159,12 +455,11 @@ export class DashboardView extends ItemView {
         
         <div class="al-view-tabs">
           <button class="al-view-tab ${this.currentView === 'dashboard' ? 'active' : ''}" data-view="dashboard"><span class="al-tab-icon" data-icon="layout-grid"></span><span>仪表盘</span></button>
-          <button class="al-view-tab ${this.currentView === 'list' ? 'active' : ''}" data-view="list"><span class="al-tab-icon" data-icon="list"></span><span>列表</span></button>
-          <button class="al-view-tab ${this.currentView === 'board' ? 'active' : ''}" data-view="board"><span class="al-tab-icon" data-icon="columns"></span><span>看板</span></button>
-          <button class="al-view-tab ${this.currentView === 'gallery' ? 'active' : ''}" data-view="gallery"><span class="al-tab-icon" data-icon="gallery-horizontal"></span><span>画廊</span></button>
+          ${viewTabsHtml}
+          <button class="al-view-tab al-view-tab-add" id="al-add-view-tab" title="添加视图"><span class="al-tab-icon" data-icon="plus"></span></button>
         </div>
         
-        ${['list', 'board', 'gallery'].includes(this.currentView) ? this.renderFilterBar() : ''}
+        ${['list', 'board', 'gallery'].includes(this.currentView) ? this.renderFilterBar(currentFilters) : ''}
         
         <div class="al-body">
           ${this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, weekComplete, activeTasks)}
@@ -193,17 +488,17 @@ export class DashboardView extends ItemView {
   
   // 应用筛选条件
   private applyFilterConditions(goals: Goal[]): Goal[] {
-    if (this.filterConditions.length === 0) {
+    if (this.tempFilterConditions.length === 0) {
       return goals;
     }
     
     return goals.filter(goal => {
-      const results = this.filterConditions.map(condition => {
+      const results = this.tempFilterConditions.map(condition => {
         return this.evaluateCondition(goal, condition);
       });
       
       // 根据逻辑运算符决定最终结果
-      if (this.filterLogic === 'and') {
+      if (this.tempFilterLogic === 'and') {
         return results.every(r => r);
       } else {
         return results.some(r => r);
@@ -286,9 +581,8 @@ export class DashboardView extends ItemView {
   }
   
   // 渲染筛选栏
-  private renderFilterBar(): string {
-    const savedViews = this.plugin.getSettings().savedFilterViews || [];
-    const hasConditions = this.filterConditions.length > 0;
+  private renderFilterBar(currentFilters: { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' }): string {
+    const hasConditions = this.tempFilterConditions.length > 0;
     
     const groupByOptions = [
       { value: 'level', label: '按层级' },
@@ -297,24 +591,15 @@ export class DashboardView extends ItemView {
     
     return `
       <div class="al-filter-bar">
-        <button id="al-toggle-filter-builder" class="al-filter-toggle ${this.showFilterBuilder ? 'active' : ''}">
-          ${this.showFilterBuilder ? '收起' : '添加筛选条件'}
+        <button id="al-toggle-filter-builder" class="al-filter-toggle ${this.tempShowFilterBuilder ? 'active' : ''}">
+          ${this.tempShowFilterBuilder ? '收起' : '添加筛选条件'}
         </button>
         
         ${this.currentView === 'board' ? `
           <div class="al-board-group-inline">
             <span class="al-board-group-label">分组：</span>
             <select id="al-board-group-by" class="al-filter-select">
-              ${groupByOptions.map(opt => `<option value="${opt.value}" ${this.boardGroupBy === opt.value ? 'selected' : ''}>${opt.label}</option>`).join('')}
-            </select>
-          </div>
-        ` : ''}
-        
-        ${savedViews.length > 0 ? `
-          <div class="al-filter-saved">
-            <select id="al-filter-views-select" class="al-filter-select">
-              <option value="">选择保存的筛选...</option>
-              ${savedViews.map(view => `<option value="${view.id}">${view.name}</option>`).join('')}
+              ${groupByOptions.map(opt => `<option value="${opt.value}" ${currentFilters.groupBy === opt.value ? 'selected' : ''}>${opt.label}</option>`).join('')}
             </select>
           </div>
         ` : ''}
@@ -324,7 +609,7 @@ export class DashboardView extends ItemView {
           <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">清除</button>
         ` : ''}
         
-        ${hasConditions ? `<span class="al-filter-count">${this.filterConditions.length} 个条件 (${this.filterLogic === 'and' ? '且' : '或'})</span>` : ''}
+        ${hasConditions ? `<span class="al-filter-count">${this.tempFilterConditions.length} 个条件 (${this.tempFilterLogic === 'and' ? '且' : '或'})</span>` : ''}
         
         <div class="al-filter-spacer"></div>
         <button class="al-filter-settings-btn" id="al-open-field-settings" title="字段设置">
@@ -332,7 +617,7 @@ export class DashboardView extends ItemView {
           <span>字段</span>
         </button>
       </div>
-      ${this.showFilterBuilder ? this.renderFilterBuilder() : ''}
+      ${this.tempShowFilterBuilder ? this.renderFilterBuilder() : ''}
     `;
   }
   
@@ -344,12 +629,12 @@ export class DashboardView extends ItemView {
       <div class="al-filter-builder">
         <div class="al-filter-logic-row">
           <span class="al-filter-logic-label">条件组合：</span>
-          <button class="al-filter-logic-btn ${this.filterLogic === 'and' ? 'active' : ''}" data-logic="and">且 (AND)</button>
-          <button class="al-filter-logic-btn ${this.filterLogic === 'or' ? 'active' : ''}" data-logic="or">或 (OR)</button>
+          <button class="al-filter-logic-btn ${this.tempFilterLogic === 'and' ? 'active' : ''}" data-logic="and">且 (AND)</button>
+          <button class="al-filter-logic-btn ${this.tempFilterLogic === 'or' ? 'active' : ''}" data-logic="or">或 (OR)</button>
         </div>
         
         <div class="al-filter-conditions">
-          ${this.filterConditions.map((condition, index) => this.renderFilterCondition(condition, index, fields)).join('')}
+          ${this.tempFilterConditions.map((condition, index) => this.renderFilterCondition(condition, index, fields)).join('')}
         </div>
         
         <button id="al-add-filter-condition" class="al-filter-add-btn">+ 添加条件</button>
@@ -407,63 +692,15 @@ export class DashboardView extends ItemView {
     return `<input type="text" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" placeholder="输入值...">`;
   }
   
-  // 保存筛选视图
-  private async saveFilterView(): Promise<void> {
-    const name = prompt('请输入筛选视图名称：');
-    if (!name || name.trim() === '') return;
-    
-    const filterView: SavedFilterView = {
-      id: this.generateFilterId(),
-      name: name.trim(),
-      conditions: [...this.filterConditions],
-      logic: this.filterLogic,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    
-    const settings = this.plugin.getSettings();
-    settings.savedFilterViews = [...settings.savedFilterViews, filterView];
-    await this.plugin.saveSettings();
-    
-    new Notice('筛选视图已保存: ' + name);
-    this.render();
-  }
-  
-  // 加载筛选视图
-  private loadFilterView(viewId: string): void {
-    const settings = this.plugin.getSettings();
-    const savedView = settings.savedFilterViews.find(v => v.id === viewId);
-    
-    if (savedView) {
-      this.filterConditions = [...savedView.conditions];
-      this.filterLogic = savedView.logic;
-      this.showFilterBuilder = false;
-      new Notice('已加载筛选视图: ' + savedView.name);
-      this.render();
-    }
-  }
-  
-  // 添加筛选条件
-  private addFilterCondition(): void {
-    const newCondition: FilterCondition = {
-      id: this.generateFilterId(),
-      field: 'A-title',
-      operator: 'contains',
-      value: ''
-    };
-    this.filterConditions = [...this.filterConditions, newCondition];
-    this.render();
-  }
-  
   // 删除筛选条件
   private removeFilterCondition(conditionId: string): void {
-    this.filterConditions = this.filterConditions.filter(c => c.id !== conditionId);
+    this.tempFilterConditions = this.tempFilterConditions.filter(c => c.id !== conditionId);
     this.render();
   }
   
   // 更新筛选条件
   private updateFilterCondition(conditionId: string, updates: Partial<FilterCondition>): void {
-    this.filterConditions = this.filterConditions.map(c => {
+    this.tempFilterConditions = this.tempFilterConditions.map(c => {
       if (c.id === conditionId) {
         return { ...c, ...updates };
       }
@@ -691,6 +928,9 @@ export class DashboardView extends ItemView {
   }
   
   private renderBoardView(allGoals: Goal[], allTasks: Task[]): string {
+    const currentFilters = this.getCurrentFilters();
+    const boardGroupBy = currentFilters.groupBy;
+    
     const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
     const levelColors: Record<number, string> = { 1: '#8B5CF6', 2: '#3B82F6', 3: '#6366F1', 4: '#22C55E' };
     const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
@@ -698,7 +938,7 @@ export class DashboardView extends ItemView {
     
     let columnsHtml = '';
     
-    if (this.boardGroupBy === 'level') {
+    if (boardGroupBy === 'level') {
       // 按层级分组
       columnsHtml = [1, 2, 3, 4].map(level => {
         const goals = allGoals.filter(g => g['A-level'] === level);
@@ -718,7 +958,7 @@ export class DashboardView extends ItemView {
           </div>
         </div>`;
       }).join('');
-    } else if (this.boardGroupBy === 'goalStatus') {
+    } else if (boardGroupBy === 'goalStatus') {
       // 按目标状态分组
       const statusOrder = ['active', 'completed', 'abandoned'];
       columnsHtml = statusOrder.map(status => {
@@ -997,10 +1237,79 @@ export class DashboardView extends ItemView {
     // Calendar events
     this.bindCalendarEvents(content);
     
-    // View tab switching
-    content.querySelectorAll('.al-view-tab').forEach(tab => { tab.addEventListener('click', (e) => { const view = (e.currentTarget as HTMLElement).getAttribute('data-view') as ViewType; if (view && view !== this.currentView) { this.currentView = view; if (view !== 'goal-detail' && view !== 'task-detail') { this.selectedGoalId = null; this.selectedTaskId = null; } this.render(); } }); });
+    // 仪表盘标签点击（固定的）
+    content.querySelectorAll('.al-view-tab[data-view]').forEach(tab => { 
+      tab.addEventListener('click', () => { 
+        const view = (tab as HTMLElement).getAttribute('data-view') as ViewType; 
+        if (view === 'dashboard' && this.currentView !== 'dashboard') { 
+          this.currentView = 'dashboard'; 
+          this.selectedGoalId = null; 
+          this.selectedTaskId = null; 
+          this.render(); 
+        }
+      }); 
+    });
     
-    // Back button
+    // 标签页点击事件
+    content.querySelectorAll('.al-view-tab[data-tab-id]').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabId = (tab as HTMLElement).getAttribute('data-tab-id');
+        if (tabId) {
+          this.switchTab(tabId);
+        }
+      });
+    });
+    
+    // 标签页右键菜单（桌面端）和长按菜单（移动端）
+    content.querySelectorAll('.al-tab-name').forEach(nameEl => {
+      // 右键菜单
+      nameEl.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        const tabId = (nameEl as HTMLElement).getAttribute('data-tab-id');
+        if (tabId) {
+          this.showTabContextMenu(nameEl as HTMLElement, tabId);
+        }
+      });
+      
+      // 长按弹出菜单（移动端）
+      let longPressTimer: number | null = null;
+      nameEl.addEventListener('touchstart', (e) => {
+        longPressTimer = window.setTimeout(() => {
+          const tabId = (nameEl as HTMLElement).getAttribute('data-tab-id');
+          if (tabId) {
+            this.showTabContextMenu(nameEl as HTMLElement, tabId);
+          }
+        }, 500);
+      });
+      
+      nameEl.addEventListener('touchend', () => {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      });
+      
+      nameEl.addEventListener('touchcancel', () => {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      });
+    });
+    
+    // 添加视图按钮 - 显示下拉菜单
+    content.querySelector('#al-add-view-tab')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.showAddViewDropdown(e as MouseEvent);
+    });
+    
+    // 看板分组选择
+    content.querySelector('#al-board-group-by')?.addEventListener('change', (e) => {
+      const groupBy = (e.target as HTMLSelectElement).value as 'level' | 'goalStatus';
+      this.updateActiveTabGroupBy(groupBy);
+      this.render();
+    });
+    
     // 返回按钮 - 返回上一页
     content.querySelector('#al-back-btn')?.addEventListener('click', () => { this.goBack(); });
     
@@ -1043,39 +1352,33 @@ export class DashboardView extends ItemView {
       });
     });
     
-    // Board group by selector
-    content.querySelector('#al-board-group-by')?.addEventListener('change', (e) => {
-      const value = (e.target as HTMLSelectElement).value as BoardGroupBy;
-      this.boardGroupBy = value;
-      this.render();
-    });
-    
     // 筛选事件
     content.querySelector('#al-toggle-filter-builder')?.addEventListener('click', () => {
-      this.showFilterBuilder = !this.showFilterBuilder;
+      this.tempShowFilterBuilder = !this.tempShowFilterBuilder;
       this.render();
-    });
-    
-    content.querySelector('#al-filter-views-select')?.addEventListener('change', (e) => {
-      const viewId = (e.target as HTMLSelectElement).value;
-      if (viewId) {
-        this.loadFilterView(viewId);
-      }
     });
     
     content.querySelector('#al-filter-save')?.addEventListener('click', () => {
-      this.saveFilterView();
+      this.updateActiveTabFilters(this.tempFilterConditions, this.tempFilterLogic);
+      new Notice('筛选条件已保存');
     });
     
     content.querySelector('#al-filter-clear')?.addEventListener('click', () => {
-      this.filterConditions = [];
-      this.filterLogic = 'and';
-      this.showFilterBuilder = false;
+      this.tempFilterConditions = [];
+      this.tempFilterLogic = 'and';
+      this.tempShowFilterBuilder = false;
+      this.updateActiveTabFilters([], 'and');
       this.render();
     });
     
     content.querySelector('#al-add-filter-condition')?.addEventListener('click', () => {
-      this.addFilterCondition();
+      this.tempFilterConditions.push({
+        id: this.generateFilterId(),
+        field: 'A-title',
+        operator: 'contains',
+        value: ''
+      });
+      this.render();
     });
     
     // 条件逻辑切换
@@ -1083,7 +1386,7 @@ export class DashboardView extends ItemView {
       btn.addEventListener('click', (e) => {
         const logic = (e.currentTarget as HTMLElement).getAttribute('data-logic') as FilterLogic;
         if (logic) {
-          this.filterLogic = logic;
+          this.tempFilterLogic = logic;
           this.render();
         }
       });
@@ -1246,7 +1549,8 @@ export class DashboardView extends ItemView {
     const goal = this.plugin.getGoalManager().getGoal(this.draggingGoalId);
     if (!goal) return;
     
-    const columnType = this.boardGroupBy;
+    const currentFilters = this.getCurrentFilters();
+    const columnType = currentFilters.groupBy;
     
     try {
       if (columnType === 'level') {
@@ -1480,6 +1784,129 @@ export class DashboardView extends ItemView {
     });
   }
   
+  // 显示添加视图下拉菜单
+  private showAddViewDropdown(e: MouseEvent): void {
+    const addBtn = e.currentTarget as HTMLElement;
+    const rect = addBtn.getBoundingClientRect();
+    
+    // 移除已存在的下拉菜单
+    const existingDropdown = document.querySelector('.al-add-view-dropdown');
+    if (existingDropdown) existingDropdown.remove();
+    
+    // 创建下拉菜单
+    const dropdown = document.createElement('div');
+    dropdown.className = 'al-add-view-dropdown show';
+    dropdown.innerHTML = `
+      <button class="al-add-view-option" data-type="list"><span class="al-tab-icon" data-icon="list"></span><span>列表视图</span></button>
+      <button class="al-add-view-option" data-type="board"><span class="al-tab-icon" data-icon="columns"></span><span>看板视图</span></button>
+      <button class="al-add-view-option" data-type="gallery"><span class="al-tab-icon" data-icon="gallery-horizontal"></span><span>画廊视图</span></button>
+    `;
+    
+    // 设置位置
+    dropdown.style.left = rect.left + 'px';
+    dropdown.style.top = (rect.bottom + 4) + 'px';
+    
+    // 添加到 body
+    document.body.appendChild(dropdown);
+    
+    // 设置图标
+    setTimeout(() => {
+      dropdown.querySelectorAll('.al-tab-icon').forEach(iconEl => {
+        const iconName = iconEl.getAttribute('data-icon');
+        if (iconName) {
+          try {
+            setIcon(iconEl as HTMLElement, iconName);
+          } catch (e) {}
+        }
+      });
+    }, 0);
+    
+    // 选项点击
+    dropdown.querySelectorAll('.al-add-view-option').forEach(opt => {
+      opt.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const type = (opt as HTMLElement).getAttribute('data-type') as ViewTabType;
+        if (type) {
+          dropdown.remove();
+          await this.addTab(type);
+        }
+      });
+    });
+    
+    // 点击外部关闭
+    const closeHandler = (event: MouseEvent) => {
+      if (!dropdown.contains(event.target as Node)) {
+        dropdown.remove();
+        document.removeEventListener('click', closeHandler);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener('click', closeHandler);
+    }, 0);
+  }
+  
+  // 显示添加视图弹窗（已废弃，保留兼容性）
+  private showAddViewModal(): void {
+    const typeOptions = [
+      { value: 'list', label: '列表视图', icon: 'list' },
+      { value: 'board', label: '看板视图', icon: 'columns' },
+      { value: 'gallery', label: '画廊视图', icon: 'gallery-horizontal' }
+    ];
+    
+    const modal = document.createElement('div');
+    modal.className = 'al-modal';
+    modal.innerHTML = `
+      <div class="al-modal-bg"></div>
+      <div class="al-modal-box">
+        <div class="al-modal-header">
+          <span>添加视图</span>
+          <button class="al-modal-close">×</button>
+        </div>
+        <div class="al-modal-body" style="padding:20px">
+          <p style="margin:0 0 16px;font-size:13px;color:var(--text-secondary)">选择视图类型：</p>
+          <div style="display:flex;flex-direction:column;gap:8px">
+            ${typeOptions.map(opt => `
+              <button class="al-add-view-type-btn" data-type="${opt.value}">
+                <span class="al-tab-icon" data-icon="${opt.icon}"></span>
+                <span>${opt.label}</span>
+              </button>
+            `).join('')}
+          </div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    const close = () => modal.remove();
+    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
+    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
+    
+    // 设置图标
+    setTimeout(() => {
+      modal.querySelectorAll('.al-tab-icon').forEach(iconEl => {
+        const iconName = iconEl.getAttribute('data-icon');
+        if (iconName) {
+          try {
+            setIcon(iconEl as HTMLElement, iconName);
+          } catch (e) {}
+        }
+      });
+    }, 0);
+    
+    // 选择类型后显示名称输入
+    modal.querySelectorAll('.al-add-view-type-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const type = (btn as HTMLElement).getAttribute('data-type') as ViewTabType;
+        const name = prompt('请输入视图名称：');
+        if (name !== null) {
+          await this.addTab(type, name);
+        }
+        close();
+      });
+    });
+  }
+  
   private showCreateGoalModal(prefill?: { level?: number; status?: string }): void {
     const levelOptions = [1, 2, 3, 4].map(level => {
       const labels: Record<number, string> = { 1: '🏆 人生目标', 2: '📅 阶段目标', 3: '📆 年度目标', 4: '⚡ 短期目标' };
@@ -1549,7 +1976,7 @@ export class DashboardView extends ItemView {
     const style = document.createElement('style');
     style.id = 'al-dashboard-styles';
     style.textContent = `
-      .al-dashboard{padding:0;height:100%;display:flex;flex-direction:column;overflow:hidden}.al-page{display:flex;flex-direction:column;height:100%;overflow:hidden}.al-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border-color);flex-shrink:0}.al-header-left{display:flex;flex-direction:column;gap:2px}.al-title{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;color:var(--text-primary)}.al-date{font-size:12px;color:var(--text-secondary)}.al-header-actions{display:flex;gap:8px}.al-header-actions button{display:inline-flex;align-items:center;gap:4px}.al-view-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--background-primary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-view-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s}.al-view-tab:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-view-tab.active{background:var(--interactive-accent);color:#fff}.al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center}.al-tab-icon svg{width:16px;height:16px}.al-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}.al-main{padding:16px 24px;gap:16px;overflow-y:auto}.al-main-full{padding:16px 24px;gap:16px;overflow-y:auto}
+      .al-dashboard{padding:0;height:100%;display:flex;flex-direction:column;overflow:hidden}.al-page{display:flex;flex-direction:column;height:100%;overflow:hidden}.al-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border-color);flex-shrink:0}.al-header-left{display:flex;flex-direction:column;gap:2px}.al-title{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;color:var(--text-primary)}.al-date{font-size:12px;color:var(--text-secondary)}.al-header-actions{display:flex;gap:8px}.al-header-actions button{display:inline-flex;align-items:center;gap:4px}.al-view-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--background-primary);border-bottom:1px solid var(--border-color);flex-shrink:0;overflow-x:auto;position:relative;z-index:999}.al-view-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s;position:relative;white-space:nowrap}.al-view-tab:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-view-tab.active{background:var(--interactive-accent);color:#fff}.al-tab-name{margin-right:4px}.al-tab-name-edit{border:1px solid var(--interactive-accent);border-radius:4px;padding:4px 8px;background:var(--background-primary);color:var(--text-primary);font-size:13px;outline:none;min-width:60px;max-width:150px;box-shadow:0 0 0 2px color-mix(in srgb,var(--interactive-accent) 30%,transparent)}.al-tab-context-menu{display:none;position:fixed;top:0;left:0;background:var(--background-primary);border:1px solid var(--border-color);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:100000;min-width:160px;padding:4px}.al-tab-context-menu.show{display:block}.al-tab-context-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;border:none;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;text-align:left;border-radius:4px;line-height:1.5}.al-tab-context-option:hover{background:var(--background-modifier-hover)}.al-tab-context-option .al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0}.al-tab-context-option:hover .al-tab-icon{color:var(--text-primary)}.al-view-tab-add{padding:8px 12px;opacity:0.6;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center}.al-view-tab-add:hover{opacity:1;background:var(--background-modifier-hover);color:var(--text-primary)}.al-add-view-dropdown{display:none;position:fixed;top:0;left:0;background:var(--background-primary);border:1px solid var(--border-color);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:100000;min-width:160px;padding:4px}.al-add-view-dropdown.show{display:block}.al-add-view-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;border:none;background:transparent;color:var(--text-primary);cursor:pointer;font-size:13px;text-align:left;border-radius:4px;line-height:1.5}.al-add-view-option:hover{background:var(--background-modifier-hover)}.al-add-view-option .al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0}.al-add-view-option:hover .al-tab-icon{color:var(--text-primary)}.al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center}.al-tab-icon svg{width:16px;height:16px}.al-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}.al-main{padding:16px 24px;gap:16px;overflow-y:auto}.al-main-full{padding:16px 24px;gap:16px;overflow-y:auto}
       .al-detail-view{flex:1;display:flex;flex-direction:column;overflow:hidden}.al-detail-header{display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-detail-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--text-secondary);transition:all .15s}.al-detail-icon:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-detail-title{display:flex;align-items:center;gap:12px;flex:1}.al-detail-title h2{font-size:20px;font-weight:600;color:var(--text-primary);margin:0}.al-detail-status{font-size:12px;padding:4px 12px;border-radius:12px;background:var(--text-green);color:#fff}.al-detail-status.status-completed{background:var(--text-muted)}.al-detail-status.status-cancelled{background:var(--text-red)}.al-detail-status.status-pending{background:var(--background-modifier-border);color:var(--text-secondary)}.al-detail-status.status-in-progress{background:var(--text-blue);color:#fff}.al-detail-content{flex:1;display:flex;overflow:hidden}.al-detail-main{flex:1;padding:24px;overflow-y:auto}.al-detail-sidebar{width:300px;padding:24px;border-left:1px solid var(--border-color);background:var(--background-secondary);overflow-y:auto;flex-shrink:0}.al-detail-section{margin-bottom:24px}.al-detail-section h3{font-size:14px;font-weight:600;color:var(--text-secondary);margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-detail-info-grid{display:grid;gap:12px;margin-bottom:16px}.al-detail-info-item{display:flex;justify-content:space-between;align-items:center}.al-detail-info-label{font-size:13px;color:var(--text-secondary)}.al-detail-info-value{font-size:13px;color:var(--text-primary);font-weight:500}.al-detail-progress-row{display:flex;justify-content:space-between;align-items:center}.al-detail-progress{display:flex;align-items:center;gap:8px}.al-detail-progress .al-progress-bar{width:120px;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-detail-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-detail-stats{display:flex;gap:16px}.al-detail-stat{flex:1;display:flex;flex-direction:column;align-items:center;padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color)}.al-detail-stat-num{font-size:28px;font-weight:700;color:var(--text-primary)}.al-detail-stat-label{font-size:12px;color:var(--text-secondary);margin-top:4px}.al-detail-stat-success .al-detail-stat-num{color:var(--text-green)}.al-detail-tasks{display:flex;flex-direction:column;gap:8px}.al-detail-task{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-task:hover{border-color:var(--interactive-accent)}.al-detail-task-content{flex:1}.al-detail-task-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:4px}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary)}.al-detail-actions{display:flex;flex-direction:column;gap:8px;margin-bottom:24px}.al-detail-actions button,.al-action-btn{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px}.al-action-btn-success{background:var(--text-green);color:#fff;border:none;border-radius:6px;cursor:pointer}.al-action-btn-danger{background:transparent;color:var(--text-red);border:1px solid var(--text-red);border-radius:6px;cursor:pointer}.al-task-actions{display:flex;flex-direction:column;gap:8px}.al-task-goal-card{padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-task-goal-card:hover{border-color:var(--interactive-accent)}.al-task-goal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-task-goal-progress{display:flex;align-items:center;gap:8px}.al-task-goal-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-task-goal-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-task-goal-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}
       .al-table-view{flex:1;padding:16px;overflow:auto}.al-table-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-table{width:100%;border-collapse:collapse;background:var(--background-secondary);border-radius:10px;overflow:hidden}.al-table th{text-align:left;padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}.al-table td{padding:12px 16px;border-bottom:1px solid var(--border-color);font-size:13px;color:var(--text-primary)}.al-table-row:hover{background:var(--background-modifier-hover);cursor:pointer}.al-table-row.completed td{color:var(--text-muted)}.al-table-row.completed .al-table-title{text-decoration:line-through}.al-table-title{font-weight:600}.al-goal-tag{font-weight:500;font-size:12px;cursor:pointer}.al-goal-tag:hover{text-decoration:underline}.al-status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}.al-status-badge.status-pending,.al-status-badge.status-active{background:var(--interactive-accent);color:#fff}.al-status-badge.status-in-progress{background:color-mix(in srgb,var(--text-blue) 20%,transparent);color:var(--text-blue)}.al-status-badge.status-completed{background:color-mix(in srgb,var(--text-green) 20%,transparent);color:var(--text-green)}.al-status-badge.status-abandoned,.al-status-badge.status-cancelled{background:var(--background-modifier-border);color:var(--text-muted)}.al-level-dot{width:10px;height:10px;border-radius:50%;display:inline-block}.al-progress-text{font-weight:500}
       .al-board-group-label{font-size:12px;color:var(--text-secondary)}.al-board-view{display:flex;flex-direction:row;flex:1;gap:12px;padding:16px;overflow-x:auto;min-height:0;background:var(--background-primary);align-items:stretch}.al-board-empty{display:flex;justify-content:center;align-items:center;width:100%}.al-board-column{flex:0 0 260px;display:flex;flex-direction:column;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;max-height:100%}.al-board-column-header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:2px solid var(--column-accent,var(--interactive-accent));background:var(--background-primary);flex-shrink:0}.al-board-column-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);overflow:visible;flex-wrap:wrap;white-space:nowrap}.al-board-column-body{flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:150px}.al-level-badge{font-size:12px;padding:3px 10px;border-radius:6px;color:#fff;font-weight:600;white-space:nowrap}.al-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.al-goal-card{padding:14px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:grab;transition:all .15s;margin-bottom:8px}.al-goal-card:hover{border-color:var(--interactive-accent);box-shadow:0 2px 8px rgba(0,0,0,0.1)}.al-goal-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:10px;line-height:1.3}.al-goal-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:10px}.al-goal-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-goal-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-goal-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-goal-card-meta{display:flex;gap:12px;font-size:12px;color:var(--text-muted)}.al-goal-card.dragging{opacity:0.3;cursor:grabbing}.drag-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:0.9;transform:rotate(2deg);box-shadow:0 8px 24px rgba(0,0,0,0.2)}.al-board-column.drop-target{border:2px dashed var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 10%,transparent)}
