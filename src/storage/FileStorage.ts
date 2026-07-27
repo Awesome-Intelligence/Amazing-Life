@@ -216,6 +216,15 @@ export class FileStorage {
   }
   
   /**
+   * 根据目标ID获取目标文件
+   */
+  getGoalFile(id: string): TFile | null {
+    const path = this.getGoalPath(id);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    return file instanceof TFile ? file : null;
+  }
+  
+  /**
    * 生成任务文件路径
    */
   getTaskPath(id: string): string {

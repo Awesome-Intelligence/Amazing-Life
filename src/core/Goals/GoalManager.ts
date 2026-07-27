@@ -25,6 +25,7 @@ export interface UpdateGoalDTO {
   start?: string;
   weight?: number;
   cover?: string | null;
+  [key: string]: any;  // 支持自定义字段
 }
 
 export class GoalManager {
@@ -87,7 +88,8 @@ export class GoalManager {
       }
     }
     
-    return {
+    // 构建目标对象，包含所有 frontmatter 字段（支持自定义字段）
+    const goal: Goal = {
       'A-id': String(frontmatter['A-id'] || file.basename),
       'A-type': 'goal',
       'A-title': String(frontmatter['A-title'] || ''),
@@ -103,6 +105,15 @@ export class GoalManager {
       'A-created': String(frontmatter['A-created'] || ''),
       'A-updated': String(frontmatter['A-updated'] || new Date().toISOString())
     };
+    
+    // 将所有 frontmatter 字段合并到 goal 对象中（支持自定义字段）
+    for (const [key, value] of Object.entries(frontmatter)) {
+      if (!(key in goal)) {
+        goal[key] = value;
+      }
+    }
+    
+    return goal;
   }
   
   /**
@@ -234,6 +245,15 @@ export class GoalManager {
     if (dto.start !== undefined) goal['A-start'] = dto.start;
     if (dto.weight !== undefined) goal['A-weight'] = dto.weight;
     if (dto.cover !== undefined) goal['A-cover'] = dto.cover || null;
+    
+    // 处理自定义字段
+    const systemFields = ['title', 'description', 'due', 'status', 'progress', 'level', 'start', 'weight', 'cover'];
+    for (const [key, value] of Object.entries(dto)) {
+      if (!systemFields.includes(key)) {
+        goal[key] = value;
+      }
+    }
+    
     goal['A-updated'] = now;
     
     const content = await this.storage.readFile(this.storage.getGoalPath(id));
@@ -254,28 +274,16 @@ export class GoalManager {
     
     let inFrontmatter = false;
     let inOverview = false;
+    let frontmatterEndIndex = -1;
     const frontmatterFields: Record<string, boolean> = {};
+    const systemFields = ['A-title', 'A-level', 'A-status', 'A-progress', 'A-due', 'A-start', 'A-weight', 'A-cover', 'A-updated', 'A-description', 'A-id', 'A-created', 'A-parent', 'A-tags'];
     
     for (const line of lines) {
       if (line === '---') {
         updatedLines.push(line);
         inFrontmatter = !inFrontmatter;
         if (!inFrontmatter) {
-          for (const [key, value] of [
-            ['A-title', goal['A-title']],
-            ['A-level', goal['A-level']],
-            ['A-status', goal['A-status']],
-            ['A-progress', goal['A-progress']],
-            ['A-due', goal['A-due'] || ''],
-            ['A-start', goal['A-start']],
-            ['A-weight', goal['A-weight']],
-            ['A-cover', goal['A-cover'] || ''],
-            ['A-updated', goal['A-updated']],
-          ]) {
-            if (!frontmatterFields[key]) {
-              updatedLines.splice(updatedLines.length - 1, 0, `${key}: ${value}`);
-            }
-          }
+          frontmatterEndIndex = updatedLines.length - 1;
         }
         continue;
       }
@@ -352,6 +360,21 @@ export class GoalManager {
       updatedLines.push('');
     }
     
+    // 处理自定义字段：在 frontmatter 结束后添加未在文件中的自定义字段
+    if (frontmatterEndIndex > 0) {
+      for (const [key, value] of Object.entries(goal)) {
+        // 跳过系统字段
+        if (systemFields.includes(key)) continue;
+        // 跳过以 A- 开头的内部字段
+        if (key.startsWith('A-')) continue;
+        // 如果文件中没有这个字段，添加它
+        if (value !== undefined && value !== null && value !== '' && !frontmatterFields[key]) {
+          updatedLines.splice(frontmatterEndIndex, 0, `${key}: ${value}`);
+          frontmatterEndIndex++;
+        }
+      }
+    }
+    
     return updatedLines.join('\n');
   }
   
@@ -394,6 +417,16 @@ export class GoalManager {
    */
   getAllGoals(): Goal[] {
     return Array.from(this.goals.values());
+  }
+  
+  /**
+   * 获取目标对应的文件
+   */
+  async getGoalFile(id: string): Promise<TFile | null> {
+    const goal = this.goals.get(id);
+    if (!goal) return null;
+    
+    return this.storage.getGoalFile(id);
   }
   
   /**

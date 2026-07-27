@@ -3,7 +3,7 @@
  */
 
 import { ItemView, Notice, Modal, setIcon, TFile } from 'obsidian';
-import { Goal, Task, GoalLevel, TaskStatus, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS, ViewTab, ViewTabType, getDefaultViewTabs } from '../types';
+import { Goal, Task, GoalLevel, TaskStatus, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS, ViewTab, ViewTabType, getDefaultViewTabs, CustomFieldConfig } from '../types';
 import AmazingLife from '../main';
 
 export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
@@ -457,6 +457,57 @@ export class DashboardView extends ItemView {
     return (this.plugin.getSettings().viewFields[viewType] || ['level', 'title', 'progress']) as GoalField[];
   }
   
+  // 获取当前视图启用的自定义字段配置
+  private getEnabledCustomFields(): CustomFieldConfig[] {
+    const viewType = this.currentView;
+    const allCustomFields = this.plugin.getSettings().customGoalFields || [];
+    
+    // 返回在当前视图中启用的自定义字段
+    return allCustomFields.filter(field => {
+      const fieldKey = `custom_${field.key}`;
+      const goalFields = this.getGoalFields();
+      return goalFields.includes(fieldKey as GoalField);
+    });
+  }
+  
+  // 根据字段类型格式化字段值显示
+  private formatCustomFieldValue(value: any, type: string): string {
+    if (value === null || value === undefined || value === '') {
+      return '-';
+    }
+    
+    switch (type) {
+      case 'color':
+        return `<span style="display:inline-block;width:16px;height:16px;background:${value};border-radius:3px;margin-right:6px;vertical-align:middle;"></span>${value}`;
+      case 'tags':
+        if (Array.isArray(value)) {
+          return value.map(tag => `<span class="al-custom-tag">#${tag}</span>`).join(' ');
+        }
+        return String(value);
+      case 'url':
+        return `<a href="${value}" target="_blank" class="al-custom-link">${value}</a>`;
+      case 'date':
+        return String(value).split('T')[0];
+      default:
+        return String(value);
+    }
+  }
+  
+  // 渲染自定义字段
+  private renderCustomFields(goal: Goal, fields: CustomFieldConfig[]): string {
+    if (fields.length === 0) return '';
+    
+    const fieldHtml = fields.map(field => {
+      const value = goal[field.key];
+      if (value === undefined || value === null || value === '') return '';
+      
+      const formattedValue = this.formatCustomFieldValue(value, field.type);
+      return `<div class="al-custom-field"><span class="al-custom-field-label">${field.label}:</span><span class="al-custom-field-value">${formattedValue}</span></div>`;
+    }).filter(html => html !== '').join('');
+    
+    return fieldHtml ? `<div class="al-custom-fields">${fieldHtml}</div>` : '';
+  }
+  
   private getGoalTitle(goalId: string | null): string {
     if (!goalId) return '未关联';
     const goal = this.plugin.getGoalManager().getGoal(goalId);
@@ -791,6 +842,10 @@ export class DashboardView extends ItemView {
     const parentGoal = goal['A-parent'] ? this.getGoal(goal['A-parent']) : null;
     const coverImageUrl = this.getCoverImageUrl(goal['A-cover']);
     
+    // 获取自定义字段配置
+    // 获取所有已配置的自定义字段（默认全部显示）
+    const customFields = this.plugin.getSettings().customGoalFields || [];
+    
     return `
       <div class="al-detail-view">
         <div class="al-detail-header">
@@ -800,8 +855,23 @@ export class DashboardView extends ItemView {
           <div class="al-detail-title">
             <h2>${goal['A-title']}</h2>
           </div>
-          <div class="al-detail-icon al-detail-delete-btn" id="al-delete-goal-btn" title="删除目标">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+          <div class="al-detail-icon" id="al-goal-menu-btn" title="更多操作">
+            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
+          </div>
+          <div class="al-goal-context-menu" id="al-goal-context-menu">
+            <div class="al-context-menu-item" id="al-menu-open-file">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline></svg>
+              <span>打开目标文件</span>
+            </div>
+            <div class="al-context-menu-item" id="al-menu-refresh">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+              <span>刷新目标</span>
+            </div>
+            <div class="al-context-menu-divider"></div>
+            <div class="al-context-menu-item al-context-menu-item-danger" id="al-menu-delete">
+              <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+              <span>删除目标</span>
+            </div>
           </div>
         </div>
         ${coverImageUrl ? `<div class="al-detail-cover"><img src="${coverImageUrl}" alt="封面图"></div>` : ''}
@@ -851,6 +921,27 @@ export class DashboardView extends ItemView {
               </div>
               ` : ''}
 
+            </div>
+            <div class="al-detail-custom-fields-block">
+              <div class="al-detail-custom-fields-header" id="al-custom-fields-toggle">
+                <span class="al-detail-custom-fields-icon">🔧</span>
+                <span class="al-detail-custom-fields-title">自定义字段</span>
+                <span class="al-detail-custom-fields-count" id="al-custom-fields-count">${customFields.length > 0 ? customFields.length : ''}</span>
+              </div>
+              <div class="al-detail-custom-fields-content" id="al-custom-fields-content">
+                <div class="al-custom-fields-list">
+                  ${customFields.length > 0 ? customFields.map(field => {
+                    const value = goal[field.key];
+                    const formattedValue = this.formatCustomFieldValue(value, field.type);
+                    const hasValue = value !== undefined && value !== null && value !== '';
+                    return `<div class="al-custom-field-item" data-field-key="${field.key}" data-field-type="${field.type}">
+                      <span class="al-custom-field-label">${field.label}</span>
+                      <span class="al-custom-field-value al-field-editable ${hasValue ? '' : 'empty'}">${hasValue ? formattedValue : '点击设置'}</span>
+                    </div>`;
+                  }).join('') : `<div class="al-custom-fields-empty">暂无自定义字段</div>`}
+                </div>
+                <div class="al-add-goal-link" id="al-add-custom-field-btn">+ 添加字段</div>
+              </div>
             </div>
             <div class="al-detail-description-block" data-field="description" data-value="${goal['A-description'] || ''}">
               <div class="al-detail-description-header">
@@ -996,6 +1087,7 @@ export class DashboardView extends ItemView {
     const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
     const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
     const fields = this.getGoalFields();
+    const customFields = this.getEnabledCustomFields();
     const showCover = fields.includes('cover');
     const showLevel = fields.includes('level');
     const showStatus = fields.includes('status');
@@ -1014,6 +1106,10 @@ export class DashboardView extends ItemView {
     if (showProgress) headerCells.push('<th style="width:80px">进度</th>');
     if (showDue) headerCells.push('<th style="width:120px">截止日期</th>');
     if (showTasksCount) headerCells.push('<th style="width:80px">任务</th>');
+    // 自定义字段列
+    customFields.forEach(field => {
+      headerCells.push(`<th style="width:120px">${field.label}</th>`);
+    });
     
     const headerHtml = headerCells.join('');
     
@@ -1032,6 +1128,13 @@ export class DashboardView extends ItemView {
       if (showProgress) cells.push(`<td><span class="al-progress-text">${goal['A-progress']}%</span></td>`);
       if (showDue) cells.push(`<td>${goal['A-due'] || '-'}</td>`);
       if (showTasksCount) cells.push(`<td>${tasks.length} (${completedCount})</td>`);
+      
+      // 自定义字段值
+      customFields.forEach(field => {
+        const value = goal[field.key];
+        const formattedValue = this.formatCustomFieldValue(value, field.type);
+        cells.push(`<td class="al-custom-field-cell">${formattedValue}</td>`);
+      });
       
       return `<tr class="al-table-row" data-goal-id="${goal['A-id']}">${cells.join('')}</tr>`;
     }).join('');
@@ -1107,6 +1210,7 @@ export class DashboardView extends ItemView {
       const tasks = allTasks.filter(t => t['A-goal'] === goal['A-id']);
       const completedCount = tasks.filter(t => t['A-status'] === 'completed').length;
       const coverUrl = this.getCoverImageUrl(goal['A-cover']);
+      const customFields = this.getEnabledCustomFields();
       let cardContent = `<div class="al-goal-card" data-goal-id="${goal['A-id']}">`;
       
       if (showCover && coverUrl) {
@@ -1133,6 +1237,9 @@ export class DashboardView extends ItemView {
         `;
       }
       
+      // 渲染自定义字段
+      cardContent += this.renderCustomFields(goal, customFields);
+      
       cardContent += '</div>';
       return cardContent;
     }).join('');
@@ -1154,6 +1261,7 @@ export class DashboardView extends ItemView {
     const renderCard = (goal: Goal): string => {
       const gt = allTasks.filter(t => t['A-goal'] === goal['A-id']);
       const coverUrl = this.getCoverImageUrl(goal['A-cover']);
+      const customFields = this.getEnabledCustomFields();
       let cardContent = `<div class="al-gallery-card al-gallery-goal" data-goal-id="${goal['A-id']}">`;
       
       if (fields.includes('cover') && coverUrl) {
@@ -1170,6 +1278,9 @@ export class DashboardView extends ItemView {
         const completed = gt.filter(t => t['A-status'] === 'completed').length;
         cardContent += `<div class="al-gallery-card-tasks"><span>✓ 已完成 ${completed} 个</span></div>`;
       }
+      
+      // 渲染自定义字段
+      cardContent += this.renderCustomFields(goal, customFields);
       
       cardContent += '</div>';
       return cardContent;
@@ -1506,8 +1617,75 @@ export class DashboardView extends ItemView {
     // 返回按钮 - 返回上一页
     content.querySelector('#al-back-btn')?.addEventListener('click', () => { this.goBack(); });
     
-    // 删除目标按钮
-    content.querySelector('#al-delete-goal-btn')?.addEventListener('click', () => {
+    // 打开目标文件按钮
+    // 目标更多操作菜单
+    const menuBtn = content.querySelector('#al-goal-menu-btn');
+    const contextMenu = content.querySelector('#al-goal-context-menu');
+    
+    let menuVisible = false;
+    
+    menuBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const menu = contextMenu as HTMLElement;
+      menuVisible = !menuVisible;
+      
+      if (menuVisible) {
+        // 定位菜单
+        const btnRect = (menuBtn as HTMLElement).getBoundingClientRect();
+        menu.style.top = `${btnRect.bottom + 8}px`;
+        menu.style.right = `${window.innerWidth - btnRect.right}px`;
+        menu.classList.add('show');
+      } else {
+        menu.classList.remove('show');
+      }
+    });
+    
+    // 点击菜单项后关闭菜单
+    content.querySelectorAll('#al-goal-context-menu .al-context-menu-item').forEach(item => {
+      item.addEventListener('click', () => {
+        menuVisible = false;
+        contextMenu?.classList.remove('show');
+      });
+    });
+    
+    // 点击菜单外部关闭
+    document.addEventListener('click', (e) => {
+      if (menuVisible && !contextMenu?.contains(e.target as Node) && e.target !== menuBtn) {
+        menuVisible = false;
+        contextMenu?.classList.remove('show');
+      }
+    });
+    
+    // 打开目标文件
+    content.querySelector('#al-menu-open-file')?.addEventListener('click', async () => {
+      contextMenu?.classList.remove('show');
+      if (this.selectedGoalId) {
+        try {
+          const file = await this.plugin.getGoalManager().getGoalFile(this.selectedGoalId);
+          if (file) {
+            await this.plugin.app.workspace.getLeaf(true).openFile(file);
+          } else {
+            new Notice('未找到目标文件');
+          }
+        } catch (error) {
+          new Notice('打开文件失败');
+        }
+      }
+    });
+    
+    // 刷新目标
+    content.querySelector('#al-menu-refresh')?.addEventListener('click', async () => {
+      contextMenu?.classList.remove('show');
+      if (this.selectedGoalId) {
+        await this.plugin.getGoalManager().loadGoals();
+        new Notice('已刷新目标');
+        this.loadAndRender();
+      }
+    });
+    
+    // 删除目标
+    content.querySelector('#al-menu-delete')?.addEventListener('click', () => {
+      contextMenu?.classList.remove('show');
       if (this.selectedGoalId) {
         const goal = this.getGoal(this.selectedGoalId);
         if (goal) {
@@ -1578,6 +1756,25 @@ export class DashboardView extends ItemView {
           this.startFieldEdit(row as HTMLElement, field, fieldType, value || '');
         }
       });
+    });
+    
+    // 自定义字段点击编辑事件
+    content.querySelectorAll('.al-custom-field-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const el = e.currentTarget as HTMLElement;
+        const fieldKey = el.getAttribute('data-field-key');
+        const fieldType = el.getAttribute('data-field-type');
+        if (fieldKey && this.selectedGoalId) {
+          const goal = this.getGoal(this.selectedGoalId);
+          const value = goal ? goal[fieldKey] : '';
+          this.startCustomFieldEdit(el, fieldKey, fieldType || 'text', value);
+        }
+      });
+    });
+    
+    // 添加自定义字段按钮
+    content.querySelector('#al-add-custom-field-btn')?.addEventListener('click', () => {
+      this.showAddCustomFieldModal();
     });
     
     // 上级目标点击事件
@@ -2443,6 +2640,195 @@ export class DashboardView extends ItemView {
     inputEl.focus();
   }
   
+  // 自定义字段编辑
+  private startCustomFieldEdit(element: HTMLElement, fieldKey: string, fieldType: string, currentValue: any): void {
+    const valueSpan = element.querySelector('.al-custom-field-value');
+    if (!valueSpan) return;
+    
+    const currentText = currentValue !== undefined && currentValue !== null && currentValue !== '' ? String(currentValue) : '';
+    
+    // 获取字段配置以获取选项
+    const settings = this.plugin.getSettings();
+    const fieldConfig = settings.customGoalFields?.find(f => f.key === fieldKey);
+    const options = fieldConfig?.options?.split(',').map(o => o.trim()) || [];
+    
+    let inputEl: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+    
+    if (fieldType === 'select' && options.length > 0) {
+      inputEl = document.createElement('select');
+      inputEl.className = 'al-field-edit-select';
+      inputEl.style.cssText = 'padding:6px 10px;border:1px solid var(--interactive-accent);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px;';
+      options.forEach(opt => {
+        const option = document.createElement('option');
+        option.value = opt;
+        option.textContent = opt;
+        if (opt === currentText) option.selected = true;
+        (inputEl as HTMLSelectElement).appendChild(option);
+      });
+    } else if (fieldType === 'number') {
+      inputEl = document.createElement('input');
+      inputEl.type = 'number';
+      inputEl.value = currentText;
+      inputEl.className = 'al-field-edit-input';
+    } else if (fieldType === 'textarea') {
+      inputEl = document.createElement('textarea');
+      inputEl.value = currentText;
+      inputEl.className = 'al-field-edit-textarea';
+      inputEl.rows = 3;
+    } else {
+      inputEl = document.createElement('input');
+      inputEl.type = 'text';
+      inputEl.value = currentText;
+      inputEl.className = 'al-field-edit-input';
+    }
+    
+    valueSpan.replaceWith(inputEl);
+    inputEl.focus();
+    if ('select' in inputEl && inputEl.tagName !== 'SELECT') {
+      (inputEl as HTMLInputElement).select();
+    }
+    
+    const saveEdit = async () => {
+      const saveValue = inputEl.value;
+      inputEl.remove();
+      
+      try {
+        const updateData: Record<string, any> = {};
+        updateData[fieldKey] = saveValue;
+        await this.plugin.getGoalManager().updateGoal(this.selectedGoalId!, updateData);
+        new Notice('更新成功');
+        this.loadAndRender();
+      } catch (error) {
+        new Notice('更新失败: ' + (error as Error).message);
+        this.loadAndRender();
+      }
+    };
+    
+    inputEl.addEventListener('blur', saveEdit);
+    inputEl.addEventListener('keydown', (e: Event) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' && fieldType !== 'textarea') {
+        event.preventDefault();
+        saveEdit();
+      }
+      if (event.key === 'Escape') {
+        this.loadAndRender();
+      }
+    });
+  }
+  
+  // 添加自定义字段弹窗
+  private showAddCustomFieldModal(): void {
+    const modal = document.createElement('div');
+    modal.className = 'al-modal';
+    modal.innerHTML = `
+      <div class="al-modal-bg"></div>
+      <div class="al-modal-box" style="max-width:400px;">
+        <div class="al-modal-header">
+          <span>添加自定义字段</span>
+          <button class="al-modal-close">&times;</button>
+        </div>
+        <div style="padding:20px;">
+          <div class="al-form-item">
+            <label>字段名称</label>
+            <input type="text" id="al-custom-field-key" placeholder="输入字段名称（如：备注、标签）" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;box-sizing:border-box;">
+          </div>
+          <div class="al-form-item">
+            <label>显示标签</label>
+            <input type="text" id="al-custom-field-label" placeholder="输入显示名称" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;box-sizing:border-box;">
+          </div>
+          <div class="al-form-item">
+            <label>字段类型</label>
+            <select id="al-custom-field-type" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;">
+              <option value="text">文本</option>
+              <option value="number">数字</option>
+              <option value="date">日期</option>
+              <option value="select">单选</option>
+            </select>
+          </div>
+          <div class="al-form-item" id="al-custom-field-options-row" style="display:none;">
+            <label>选项（逗号分隔）</label>
+            <input type="text" id="al-custom-field-options" placeholder="如：重要,普通,紧急" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;box-sizing:border-box;">
+          </div>
+          <div class="al-form-item">
+            <label>字段值（可选）</label>
+            <input type="text" id="al-custom-field-value" placeholder="输入字段值" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;box-sizing:border-box;">
+          </div>
+        </div>
+        <div class="al-modal-footer">
+          <button class="al-btn-secondary" id="al-custom-field-cancel" style="padding:8px 16px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-secondary);cursor:pointer;">取消</button>
+          <button class="mod-cta" id="al-custom-field-save" style="padding:8px 16px;border:none;border-radius:6px;background:var(--interactive-accent);color:#fff;cursor:pointer;">保存</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    const keyInput = modal.querySelector('#al-custom-field-key') as HTMLInputElement;
+    const labelInput = modal.querySelector('#al-custom-field-label') as HTMLInputElement;
+    const typeSelect = modal.querySelector('#al-custom-field-type') as HTMLSelectElement;
+    const optionsRow = modal.querySelector('#al-custom-field-options-row') as HTMLElement;
+    const optionsInput = modal.querySelector('#al-custom-field-options') as HTMLInputElement;
+    const valueInput = modal.querySelector('#al-custom-field-value') as HTMLInputElement;
+    
+    // 类型选择时显示/隐藏选项输入框
+    typeSelect.addEventListener('change', () => {
+      optionsRow.style.display = typeSelect.value === 'select' ? 'block' : 'none';
+    });
+    
+    const close = () => modal.remove();
+    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
+    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
+    modal.querySelector('#al-custom-field-cancel')?.addEventListener('click', close);
+    
+    modal.querySelector('#al-custom-field-save')?.addEventListener('click', async () => {
+      const fieldKey = keyInput.value.trim();
+      const fieldLabel = labelInput.value.trim() || fieldKey;
+      const fieldType = typeSelect.value;
+      const fieldOptions = typeSelect.value === 'select' ? optionsInput.value.trim() : '';
+      const fieldValue = valueInput.value.trim();
+      
+      if (!fieldKey) {
+        new Notice('请输入字段名称');
+        return;
+      }
+      
+      // 检查是否已存在
+      const settings = this.plugin.getSettings();
+      const existingFields = settings.customGoalFields || [];
+      if (existingFields.some(f => f.key === fieldKey)) {
+        new Notice('该字段已存在');
+        return;
+      }
+      
+      // 添加到设置
+      const newField: CustomFieldConfig = {
+        key: fieldKey,
+        label: fieldLabel,
+        type: fieldType as 'text' | 'number' | 'date' | 'select',
+        options: fieldOptions,
+        showInViews: ['gallery', 'list', 'board']
+      };
+      
+      existingFields.push(newField);
+      settings.customGoalFields = existingFields;
+      await this.plugin.saveSettings();
+      
+      // 如果有值，更新目标
+      if (fieldValue && this.selectedGoalId) {
+        const updateData: Record<string, any> = {};
+        updateData[fieldKey] = fieldValue;
+        await this.plugin.getGoalManager().updateGoal(this.selectedGoalId, updateData);
+      }
+      
+      new Notice('自定义字段已添加');
+      close();
+      this.loadAndRender();
+    });
+    
+    keyInput.focus();
+  }
+  
   private async openTodayNote(): Promise<void> { try { await this.plugin.getNoteManager().getOrCreateTodayNote(); new Notice('今日日记已打开'); } catch (error) { new Notice('打开日记失败'); } }
   private async openWeeklyNote(): Promise<void> { try { await this.plugin.getNoteManager().getOrCreateWeeklyNote(this.plugin.getNoteManager().getCurrentWeekKey()); new Notice('本周周记已打开'); } catch (error) { new Notice('打开周记失败'); } }
   private async openMonthlyNote(): Promise<void> { try { await this.plugin.getNoteManager().getOrCreateMonthlyNote(this.plugin.getNoteManager().getCurrentYearMonth()); new Notice('本月月记已打开'); } catch (error) { new Notice('打开月记失败'); } }
@@ -2500,6 +2886,8 @@ export class DashboardView extends ItemView {
       .al-detail-references-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-references-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-references-icon{font-size:16px}.al-detail-references-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-detail-references-count{background:var(--interactive-accent);color:#fff;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px}.al-detail-references-content{padding:8px 16px;max-height:280px;overflow-y:auto}.al-detail-references-loading{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-references-empty{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-reference-item{padding:10px 12px;border-radius:6px;cursor:pointer;transition:all .15s;margin-bottom:4px}.al-detail-reference-item:hover{background:var(--background-modifier-hover)}.al-reference-file-info{display:flex;align-items:center;gap:6px;margin-bottom:6px}.al-reference-file-icon{font-size:12px;color:var(--text-muted)}.al-reference-file-name{font-size:12px;color:var(--interactive-accent);font-weight:500}.al-reference-line-number{font-size:11px;color:var(--text-muted);padding:1px 4px;background:var(--background-primary);border-radius:3px}.al-reference-content{font-size:13px;color:var(--text-secondary);line-height:1.5;white-space:pre-wrap;word-break:break-all}.al-reference-highlight{background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent);padding:1px 3px;border-radius:3px;font-weight:500}
       .al-gallery-add-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:120px;border:1px dashed var(--border-color);border-radius:10px;color:var(--text-muted);cursor:pointer;transition:all .15s}.al-gallery-add-card:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:var(--background-secondary)}.al-gallery-add-card .al-gallery-add-icon{font-size:28px;opacity:.5}.al-gallery-add-card:hover .al-gallery-add-icon{opacity:1}
       .al-modal-task-detail .al-modal-box{max-width:500px;width:90%}.al-modal-task-detail .al-modal-body{padding:20px;max-height:70vh;overflow-y:auto}.al-task-detail-title input{width:100%;font-size:18px;font-weight:600;border:1px solid var(--border-color);border-radius:6px;padding:12px;background:var(--background-primary);color:var(--text-primary);box-sizing:border-box}.al-task-detail-title input:focus{outline:none;border-color:var(--interactive-accent)}.al-task-detail-fields{display:flex;flex-direction:column;gap:12px;margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color)}.al-task-detail-field{display:flex;align-items:center;gap:12px}.al-task-detail-field label{width:100px;flex-shrink:0;font-size:14px;color:var(--text-secondary)}.al-task-detail-field select,.al-task-detail-field input{flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px}.al-task-detail-field select:focus,.al-task-detail-field input:focus{outline:none;border-color:var(--interactive-accent)}.al-task-detail-desc-section{margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color)}.al-task-detail-desc-section label{display:block;font-size:14px;color:var(--text-secondary);margin-bottom:8px}.al-task-detail-desc-section textarea{width:100%;min-height:100px;padding:12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px;resize:vertical;box-sizing:border-box}.al-task-detail-desc-section textarea:focus{outline:none;border-color:var(--interactive-accent)}.al-modal-footer{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-top:1px solid var(--border-color);background:var(--background-secondary)}.al-modal-footer .al-btn-danger{background:transparent;border:1px solid var(--text-red);color:var(--text-red);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:14px}.al-modal-footer .al-btn-danger:hover{background:var(--text-red);color:#fff}.al-modal-footer .al-btn-secondary{background:transparent;border:1px solid var(--border-color);color:var(--text-secondary);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:14px}.al-modal-footer .al-btn-secondary:hover{background:var(--background-modifier-hover)}
+      .al-custom-fields{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border-color)}.al-custom-field{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px}.al-custom-field-label{color:var(--text-muted);min-width:60px}.al-custom-field-value{color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-custom-tag{display:inline-block;padding:2px 6px;background:var(--background-primary);border-radius:4px;font-size:11px;color:var(--interactive-accent);margin-right:4px}.al-custom-link{color:var(--interactive-accent);text-decoration:none}.al-custom-link:hover{text-decoration:underline}.al-custom-field-cell{font-size:12px;color:var(--text-secondary)}.al-settings-desc{font-size:12px;color:var(--text-muted);margin:4px 0}
+      .al-detail-custom-fields-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-custom-fields-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color);cursor:pointer}.al-detail-custom-fields-header:hover{background:var(--background-modifier-hover)}.al-detail-custom-fields-icon{font-size:16px}.al-detail-custom-fields-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-detail-custom-fields-count{background:var(--interactive-accent);color:#fff;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px}.al-detail-custom-fields-content{padding:12px 16px}.al-custom-field-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:6px;cursor:pointer;transition:all .15s;margin-bottom:4px}.al-custom-field-item:hover{background:var(--background-modifier-hover)}.al-custom-field-label{font-size:13px;color:var(--text-secondary);min-width:80px;flex-shrink:0}.al-custom-field-value{font-size:14px;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-custom-field-value.empty{color:var(--text-muted);font-style:italic}.al-goal-context-menu{display:none;position:fixed;background:var(--background-primary);border:1px solid var(--border-color);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.2);z-index:10000;min-width:160px;padding:6px}.al-goal-context-menu.show{display:block}.al-context-menu-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:4px;cursor:pointer;font-size:13px;color:var(--text-primary);transition:all .1s}.al-context-menu-item:hover{background:var(--background-modifier-hover)}.al-context-menu-item svg{flex-shrink:0;color:var(--text-secondary)}.al-context-menu-item:hover svg{color:var(--text-primary)}.al-context-menu-divider{height:1px;background:var(--border-color);margin:4px 0}.al-context-menu-item-danger{color:var(--text-red)}.al-context-menu-item-danger svg{color:var(--text-red)}.al-context-menu-item-danger:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent)}
       `;
     document.head.appendChild(style);
   }

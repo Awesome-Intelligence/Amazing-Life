@@ -15,7 +15,7 @@ export type TaskStatus = 'pending' | 'in-progress' | 'completed' | 'cancelled';
 // 任务优先级
 export type TaskPriority = 1 | 2 | 3 | 4 | 5;
 
-// 目标模型
+// 目标模型（支持动态自定义字段）
 export interface Goal {
   'A-id': string;
   'A-type': 'goal';
@@ -31,9 +31,11 @@ export interface Goal {
   'A-cover': string | null;     // 封面图片URL
   'A-created': string;
   'A-updated': string;
+  // 动态自定义字段
+  [key: string]: any;
 }
 
-// 任务模型
+// 任务模型（支持动态自定义字段）
 export interface Task {
   'A-id': string;
   'A-type': 'task';
@@ -48,6 +50,8 @@ export interface Task {
   'A-created': string;
   'A-completed': string | null;
   'A-description': string | null;
+  // 动态自定义字段
+  [key: string]: any;
 }
 
 // 目标树节点
@@ -78,6 +82,15 @@ export type GoalField = 'level' | 'title' | 'status' | 'progress' | 'due' | 'cre
 
 // 任务字段
 export type TaskField = 'title' | 'status' | 'priority' | 'due' | 'goal' | 'tags' | 'created' | 'completed';
+
+// 自定义字段配置
+export interface CustomFieldConfig {
+  key: string;           // 字段键名（如 'motto', 'color'）
+  label: string;         // 显示标签
+  type: 'text' | 'number' | 'color' | 'tags' | 'date' | 'url' | 'select';  // 字段类型
+  showInViews: string[]; // 在哪些视图中显示 ['gallery', 'list', 'board']
+  options?: string;      // select类型的选项，逗号分隔
+}
 
 // 视图字段配置
 export interface ViewFieldsConfig {
@@ -244,6 +257,7 @@ export interface PluginSettings {
   viewFields: ViewFieldsConfig; // 视图字段配置
   viewTabs: ViewTab[];         // 视图标签页配置
   activeTabId: string | null;  // 当前活动的标签页ID
+  customGoalFields: CustomFieldConfig[];  // 自定义目标字段配置
 }
 
 // 层级名称映射
@@ -286,7 +300,8 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   autoProgressUpdate: true,
   viewFields: DEFAULT_VIEW_FIELDS,
   viewTabs: [],  // 默认空，用户可以添加
-  activeTabId: null
+  activeTabId: null,
+  customGoalFields: []  // 自定义目标字段配置，默认空
 };
 
 // 默认视图标签页
