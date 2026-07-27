@@ -25,6 +25,7 @@ export interface UpdateGoalDTO {
   start?: string;
   weight?: number;
   cover?: string | null;
+  parent?: string | null;
   [key: string]: any;  // 支持自定义字段
 }
 
@@ -245,9 +246,10 @@ export class GoalManager {
     if (dto.start !== undefined) goal['A-start'] = dto.start;
     if (dto.weight !== undefined) goal['A-weight'] = dto.weight;
     if (dto.cover !== undefined) goal['A-cover'] = dto.cover || null;
+    if (dto.parent !== undefined) goal['A-parent'] = dto.parent;
     
     // 处理自定义字段
-    const systemFields = ['title', 'description', 'due', 'status', 'progress', 'level', 'start', 'weight', 'cover'];
+    const systemFields = ['title', 'description', 'due', 'status', 'progress', 'level', 'start', 'weight', 'cover', 'parent'];
     for (const [key, value] of Object.entries(dto)) {
       if (!systemFields.includes(key)) {
         goal[key] = value;
@@ -316,6 +318,9 @@ export class GoalManager {
         } else if (line.startsWith('A-cover:')) {
           updatedLines.push(`A-cover: ${goal['A-cover'] || ''}`);
           frontmatterFields['A-cover'] = true;
+        } else if (line.startsWith('A-parent:')) {
+          updatedLines.push(`A-parent: ${goal['A-parent'] || ''}`);
+          frontmatterFields['A-parent'] = true;
         } else {
           updatedLines.push(line);
         }

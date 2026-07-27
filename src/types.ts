@@ -236,7 +236,7 @@ export interface ViewTab {
   id: string;
   name: string;               // 用户自定义名称
   type: ViewTabType;          // 视图类型
-  groupBy?: 'level' | 'goalStatus';  // 看板分组方式
+  groupBy?: 'level' | 'goalStatus' | 'parent';  // 看板分组方式
   filters: FilterCondition[];  // 筛选条件
   filterLogic: FilterLogic;    // 筛选逻辑
 }

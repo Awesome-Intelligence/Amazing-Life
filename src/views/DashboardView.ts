@@ -10,7 +10,7 @@ export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
 
 export type ViewType = 'dashboard' | 'list' | 'board' | 'gallery' | 'goal-detail' | 'task-detail';
 export type CalendarViewMode = 'day' | 'week' | 'month' | 'year';
-export type BoardGroupBy = 'level' | 'goalStatus';
+export type BoardGroupBy = 'level' | 'goalStatus' | 'parent';
 
 export class DashboardView extends ItemView {
   private plugin: AmazingLife;
@@ -409,7 +409,7 @@ export class DashboardView extends ItemView {
   }
   
   // 更新当前标签的看板分组方式
-  private async updateActiveTabGroupBy(groupBy: 'level' | 'goalStatus' | null): Promise<void> {
+  private async updateActiveTabGroupBy(groupBy: 'level' | 'goalStatus' | 'parent' | null): Promise<void> {
     const settings = this.plugin.getSettings();
     const tabs = this.getViewTabs();
     const activeTab = this.getActiveTab();
@@ -425,7 +425,7 @@ export class DashboardView extends ItemView {
   }
   
   // 获取当前标签的筛选条件
-  private getCurrentFilters(): { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | null } {
+  private getCurrentFilters(): { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | 'parent' | null } {
     const activeTab = this.getActiveTab();
     if (activeTab) {
       return {
@@ -695,13 +695,14 @@ export class DashboardView extends ItemView {
   }
   
   // 渲染筛选栏
-  private renderFilterBar(currentFilters: { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | null }): string {
+  private renderFilterBar(currentFilters: { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | 'parent' | null }): string {
     const hasConditions = this.tempFilterConditions.length > 0;
     
     const groupByOptions = [
       { value: '', label: '不分组' },
       { value: 'level', label: '按层级' },
-      { value: 'goalStatus', label: '按状态' }
+      { value: 'goalStatus', label: '按状态' },
+      { value: 'parent', label: '按父目标' }
     ];
     
     const showGroupBy = ['board', 'gallery'].includes(this.currentView);
@@ -842,9 +843,14 @@ export class DashboardView extends ItemView {
     const parentGoal = goal['A-parent'] ? this.getGoal(goal['A-parent']) : null;
     const coverImageUrl = this.getCoverImageUrl(goal['A-cover']);
     
+    // 获取子目标
+    const subGoals = this.plugin.getGoalManager().getAllGoals().filter(g => g['A-parent'] === goal['A-id']);
+    
     // 获取自定义字段配置
-    // 获取所有已配置的自定义字段（默认全部显示）
-    const customFields = this.plugin.getSettings().customGoalFields || [];
+    // 获取当前目标已有的自定义字段值
+    const customFields = (this.plugin.getSettings().customGoalFields || []).filter(field => {
+      return goal[field.key] !== undefined && goal[field.key] !== null && goal[field.key] !== '';
+    });
     
     return `
       <div class="al-detail-view">
@@ -913,13 +919,11 @@ export class DashboardView extends ItemView {
                 <span class="al-field-label">截止时间</span>
                 <span class="al-field-value al-field-editable" data-field-type="date">${goal['A-due'] || '-'}</span>
               </div>
-              ${parentGoal ? `
-              <div class="al-field-row">
+              <div class="al-field-row al-parent-field-row" data-field="parent" data-value="${goal['A-parent'] || ''}">
                 <span class="al-field-icon">🔗</span>
                 <span class="al-field-label">上级目标</span>
-                <span class="al-field-value al-field-link" data-goal-id="${parentGoal['A-id']}">${parentGoal['A-title']}</span>
+                <span class="al-field-value al-parent-value ${parentGoal ? 'has-parent' : ''}" data-goal-id="${parentGoal ? parentGoal['A-id'] : ''}">${parentGoal ? parentGoal['A-title'] : '点击选择'}</span>
               </div>
-              ` : ''}
 
             </div>
             <div class="al-detail-custom-fields-block">
@@ -969,6 +973,28 @@ export class DashboardView extends ItemView {
                 </div>
               `).join('')}</div>`}
               <div class="al-add-goal-link" id="al-add-task-to-goal">+ 添加任务</div>
+            </div>
+            <div class="al-detail-subgoals-block">
+              <div class="al-detail-subgoals-header">
+                <span class="al-detail-subgoals-icon">📂</span>
+                <span class="al-detail-subgoals-title">子目标</span>
+                <span class="al-detail-subgoals-count">${subGoals.length}</span>
+              </div>
+              ${subGoals.length > 0 ? `
+                <div class="al-detail-subgoals-list">
+                  ${subGoals.map(sub => `
+                    <div class="al-detail-subgoal-item" data-goal-id="${sub['A-id']}">
+                      <span class="al-subgoal-level" style="background:${levelColors[sub['A-level']]}">${levelNames[sub['A-level']]}</span>
+                      <span class="al-subgoal-title">${sub['A-title']}</span>
+                      <div class="al-subgoal-progress">
+                        <div class="al-progress-bar-small"><div class="al-progress-fill-small" style="width:${sub['A-progress']}%"></div></div>
+                        <span>${sub['A-progress']}%</span>
+                      </div>
+                    </div>
+                  `).join('')}
+                </div>
+              ` : `<div class="al-detail-subgoals-empty">暂无子目标</div>`}
+              <div class="al-add-goal-link" id="al-add-subgoal-btn">+ 添加子目标</div>
             </div>
             <div class="al-detail-references-block" id="al-references-container">
               <div class="al-detail-references-header">
@@ -1309,20 +1335,45 @@ export class DashboardView extends ItemView {
         if (!groups.has(key)) groups.set(key, []);
         groups.get(key)!.push(goal);
       }
+    } else if (groupBy === 'parent') {
+      // 按父目标分组
+      for (const goal of allGoals) {
+        const key = goal['A-parent'] || '__root__';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key)!.push(goal);
+      }
     }
     
     // 定义分组顺序（统一为字符串）
     const levelOrder = ['1', '2', '3', '4'];
     const statusOrder = ['active', 'completed', 'abandoned'];
-    const groupOrder = groupBy === 'level' ? levelOrder : statusOrder;
+    const groupOrder = groupBy === 'level' ? levelOrder : (groupBy === 'goalStatus' ? statusOrder : Array.from(groups.keys()).sort());
     
     let sectionsHtml = '';
     for (const key of groupOrder) {
       const goals = groups.get(key) || [];
       if (goals.length === 0) continue;
       
-      const groupLabel = groupBy === 'level' ? levelNames[parseInt(key)] : statusNames[key];
-      const groupColor = groupBy === 'level' ? levelColors[parseInt(key)] : statusColors[key];
+      let groupLabel: string;
+      let groupColor: string;
+      if (groupBy === 'level') {
+        groupLabel = levelNames[parseInt(key)];
+        groupColor = levelColors[parseInt(key)];
+      } else if (groupBy === 'goalStatus') {
+        groupLabel = statusNames[key];
+        groupColor = statusColors[key];
+      } else {
+        // 按父目标分组
+        if (key === '__root__') {
+          groupLabel = '顶级目标';
+          groupColor = 'var(--text-muted)';
+        } else {
+          const parentGoal = this.getGoal(key);
+          groupLabel = parentGoal ? parentGoal['A-title'] : '未知目标';
+          groupColor = 'var(--interactive-accent)';
+        }
+      }
+      
       const cardsHtml = goals.map(goal => renderCard(goal)).join('');
       
       sectionsHtml += `
@@ -1331,7 +1382,7 @@ export class DashboardView extends ItemView {
             <span class="al-gallery-section-dot" style="background:${groupColor}"></span>
             ${groupLabel} (${goals.length})
           </div>
-          <div class="al-gallery-grid">${cardsHtml}<div class="al-gallery-add-card" data-prefill-level="${groupBy === 'level' ? key : ''}" data-prefill-status="${groupBy === 'goalStatus' ? key : ''}"><span class="al-gallery-add-icon">+</span><span>添加目标</span></div></div>
+          <div class="al-gallery-grid">${cardsHtml}<div class="al-gallery-add-card" data-prefill-level="${groupBy === 'level' ? key : ''}" data-prefill-status="${groupBy === 'goalStatus' ? key : ''}" data-prefill-parent="${groupBy === 'parent' && key !== '__root__' ? key : ''}"><span class="al-gallery-add-icon">+</span><span>添加目标</span></div></div>
         </div>
       `;
     }
@@ -1609,7 +1660,7 @@ export class DashboardView extends ItemView {
     // 看板/画廊分组选择
     content.querySelector('#al-board-group-by')?.addEventListener('change', (e) => {
       const groupByValue = (e.target as HTMLSelectElement).value;
-      const groupBy = groupByValue === '' ? null : groupByValue as 'level' | 'goalStatus';
+      const groupBy = groupByValue === '' ? null : groupByValue as 'level' | 'goalStatus' | 'parent';
       this.updateActiveTabGroupBy(groupBy);
       this.render();
     });
@@ -1689,14 +1740,23 @@ export class DashboardView extends ItemView {
       if (this.selectedGoalId) {
         const goal = this.getGoal(this.selectedGoalId);
         if (goal) {
-          new DeleteConfirmModal(this.plugin, goal['A-title'], () => {
-            this.plugin.getGoalManager().deleteGoal(this.selectedGoalId!).then(() => {
-              new Notice('目标已删除');
-              this.goBack();
-            }).catch(() => {
-              new Notice('删除目标失败');
-            });
-          }).open();
+          // 检查是否有子目标
+          const subGoals = this.plugin.getGoalManager().getAllGoals().filter(g => g['A-parent'] === this.selectedGoalId);
+          
+          if (subGoals.length > 0) {
+            // 有子目标，显示处理子目标的选项
+            this.showDeleteGoalWithChildrenModal(goal, subGoals);
+          } else {
+            // 无子目标，直接删除
+            new DeleteConfirmModal(this.plugin, goal['A-title'], () => {
+              this.plugin.getGoalManager().deleteGoal(this.selectedGoalId!).then(() => {
+                new Notice('目标已删除');
+                this.goBack();
+              }).catch(() => {
+                new Notice('删除目标失败');
+              });
+            }).open();
+          }
         }
       }
     });
@@ -1752,10 +1812,30 @@ export class DashboardView extends ItemView {
         const field = row.getAttribute('data-field');
         const value = row.getAttribute('data-value');
         const fieldType = row.querySelector('.al-field-editable')?.getAttribute('data-field-type');
-        if (field && fieldType && field !== 'cover' && this.selectedGoalId) {
+        if (field && fieldType && field !== 'cover' && field !== 'parent' && this.selectedGoalId) {
           this.startFieldEdit(row as HTMLElement, field, fieldType, value || '');
         }
       });
+    });
+    
+    // 上级目标点击 - 选择父目标
+    content.querySelector('.al-parent-field-row')?.addEventListener('click', () => {
+      this.showParentSelectorModal();
+    });
+    
+    // 子目标点击 - 跳转到子目标详情
+    content.querySelectorAll('.al-detail-subgoal-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id');
+        if (goalId) this.navigateTo('goal-detail', goalId, null);
+      });
+    });
+    
+    // 添加子目标按钮
+    content.querySelector('#al-add-subgoal-btn')?.addEventListener('click', () => {
+      if (this.selectedGoalId) {
+        this.showCreateGoalModal({ parent: this.selectedGoalId });
+      }
     });
     
     // 自定义字段点击编辑事件
@@ -1815,7 +1895,10 @@ export class DashboardView extends ItemView {
         const el = e.currentTarget as HTMLElement;
         const prefillLevel = el.getAttribute('data-prefill-level');
         const prefillStatus = el.getAttribute('data-prefill-status');
-        if (prefillLevel) {
+        const prefillParent = el.getAttribute('data-prefill-parent');
+        if (prefillParent) {
+          this.showCreateGoalModal({ parent: prefillParent });
+        } else if (prefillLevel) {
           this.showCreateGoalModal({ level: parseInt(prefillLevel) });
         } else if (prefillStatus) {
           this.showCreateGoalModal({ status: prefillStatus as 'active' | 'completed' | 'abandoned' });
@@ -2405,22 +2488,182 @@ export class DashboardView extends ItemView {
     }, 0);
   }
   
-  private showCreateGoalModal(prefill?: { level?: number; status?: string }): void {
+  private showDeleteGoalWithChildrenModal(goal: Goal, subGoals: Goal[]): void {
+    const modal = document.createElement('div');
+    modal.className = 'al-modal';
+    modal.innerHTML = `
+      <div class="al-modal-bg"></div>
+      <div class="al-modal-box" style="max-width:420px;">
+        <div class="al-modal-header">
+          <span>⚠️ 删除目标</span>
+          <button class="al-modal-close">&times;</button>
+        </div>
+        <div style="padding:20px;">
+          <p style="margin:0 0 16px;font-size:14px;color:var(--text-primary);">
+            目标「<strong>${goal['A-title']}</strong>」有 <strong>${subGoals.length}</strong> 个子目标，请选择删除方式：
+          </p>
+          <div style="display:flex;flex-direction:column;gap:10px;">
+            <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;" class="al-delete-option">
+              <input type="radio" name="delete-mode" value="cascade" checked style="margin-top:3px;">
+              <div>
+                <div style="font-size:14px;font-weight:500;color:var(--text-primary);">级联删除</div>
+                <div style="font-size:12px;color:var(--text-muted);">同时删除所有子目标</div>
+              </div>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;" class="al-delete-option">
+              <input type="radio" name="delete-mode" value="promote" style="margin-top:3px;">
+              <div>
+                <div style="font-size:14px;font-weight:500;color:var(--text-primary);">提升子目标</div>
+                <div style="font-size:12px;color:var(--text-muted);">将子目标提升为顶级目标后再删除</div>
+              </div>
+            </label>
+            <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;" class="al-delete-option">
+              <input type="radio" name="delete-mode" value="cancel" style="margin-top:3px;">
+              <div>
+                <div style="font-size:14px;font-weight:500;color:var(--text-primary);">取消</div>
+                <div style="font-size:12px;color:var(--text-muted);">不删除目标</div>
+              </div>
+            </label>
+          </div>
+        </div>
+        <div class="al-modal-footer">
+          <button class="mod-cta" id="al-confirm-delete-with-children" style="padding:8px 16px;border:none;border-radius:6px;background:var(--text-red);color:#fff;cursor:pointer;">确认删除</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    const close = () => modal.remove();
+    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
+    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
+    
+    // 选中样式
+    modal.querySelectorAll('.al-delete-option').forEach(option => {
+      option.addEventListener('click', () => {
+        modal.querySelectorAll('.al-delete-option').forEach(o => (o as HTMLElement).style.borderColor = 'var(--border-color)');
+        (option as HTMLElement).style.borderColor = 'var(--interactive-accent)';
+      });
+    });
+    
+    modal.querySelector('#al-confirm-delete-with-children')?.addEventListener('click', async () => {
+      const selectedMode = (modal.querySelector('input[name="delete-mode"]:checked') as HTMLInputElement)?.value;
+      
+      if (selectedMode === 'cancel') {
+        close();
+        return;
+      }
+      
+      try {
+        if (selectedMode === 'promote') {
+          // 提升子目标：移除所有子目标的父目标引用
+          for (const subGoal of subGoals) {
+            await this.plugin.getGoalManager().updateGoal(subGoal['A-id'], { parent: null });
+          }
+        }
+        // 删除目标
+        await this.plugin.getGoalManager().deleteGoal(goal['A-id']);
+        new Notice('目标已删除');
+        close();
+        this.goBack();
+      } catch (error) {
+        new Notice('删除失败: ' + (error as Error).message);
+      }
+    });
+  }
+  
+  private showParentSelectorModal(): void {
+    if (!this.selectedGoalId) return;
+    
+    const currentGoal = this.getGoal(this.selectedGoalId);
+    if (!currentGoal) return;
+    
+    const allGoals = this.plugin.getGoalManager().getAllGoals();
+    // 排除自己和自己的子目标（防止循环引用）
+    const descendants = this.plugin.getGoalManager().getDescendants(this.selectedGoalId);
+    const excludeIds = new Set([this.selectedGoalId, ...descendants.map(g => g['A-id'])]);
+    
+    const levelNames: Record<number, string> = { 1: '🏆', 2: '📅', 3: '📆', 4: '⚡' };
+    const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
+    
+    const availableGoals = allGoals.filter(g => !excludeIds.has(g['A-id']));
+    
+    const goalOptions = availableGoals.map(goal => {
+      const selected = goal['A-id'] === currentGoal['A-parent'] ? 'selected' : '';
+      return `<option value="${goal['A-id']}" ${selected}>${levelNames[goal['A-level']]} ${goal['A-title']}</option>`;
+    }).join('');
+    
+    const modal = document.createElement('div');
+    modal.className = 'al-modal';
+    modal.innerHTML = `
+      <div class="al-modal-bg"></div>
+      <div class="al-modal-box" style="max-width:400px;">
+        <div class="al-modal-header">
+          <span>选择上级目标</span>
+          <button class="al-modal-close">&times;</button>
+        </div>
+        <div style="padding:20px;">
+          <div class="al-form-item">
+            <label>上级目标</label>
+            <select id="al-parent-select" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;">
+              <option value="">无（顶级目标）</option>
+              ${goalOptions}
+            </select>
+          </div>
+          <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px;">提示：不能选择自己或子目标作为上级目标</p>
+        </div>
+        <div class="al-modal-footer">
+          <button class="al-btn-secondary" id="al-parent-cancel" style="padding:8px 16px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-secondary);cursor:pointer;">取消</button>
+          <button class="mod-cta" id="al-parent-save" style="padding:8px 16px;border:none;border-radius:6px;background:var(--interactive-accent);color:#fff;cursor:pointer;">保存</button>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(modal);
+    
+    const close = () => modal.remove();
+    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
+    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
+    modal.querySelector('#al-parent-cancel')?.addEventListener('click', close);
+    
+    modal.querySelector('#al-parent-save')?.addEventListener('click', async () => {
+      const parentId = (modal.querySelector('#al-parent-select') as HTMLSelectElement).value || null;
+      
+      try {
+        await this.plugin.getGoalManager().updateGoal(this.selectedGoalId!, { parent: parentId });
+        new Notice(parentId ? '已设置上级目标' : '已移除上级目标');
+        close();
+        this.loadAndRender();
+      } catch (error) {
+        new Notice('设置失败: ' + (error as Error).message);
+      }
+    });
+  }
+  
+  private showCreateGoalModal(prefill?: { level?: number; status?: string; parent?: string }): void {
     const levelOptions = [1, 2, 3, 4].map(level => {
       const labels: Record<number, string> = { 1: '🏆 人生目标', 2: '📅 阶段目标', 3: '📆 年度目标', 4: '⚡ 短期目标' };
       const selected = prefill?.level === level ? 'selected' : (level === 3 && !prefill?.level ? 'selected' : '');
       return `<option value="${level}" ${selected}>${labels[level]}</option>`;
     }).join('');
     
+    // 获取可选的父目标列表
+    const allGoals = this.plugin.getGoalManager().getAllGoals();
+    const levelNames: Record<number, string> = { 1: '🏆', 2: '📅', 3: '📆', 4: '⚡' };
+    const parentOptions = allGoals.map(goal => {
+      const selected = prefill?.parent === goal['A-id'] ? 'selected' : '';
+      return `<option value="${goal['A-id']}" ${selected}>${levelNames[goal['A-level']]} ${goal['A-title']}</option>`;
+    }).join('');
+    
     const modal = document.createElement('div');
     modal.className = 'al-modal';
-    modal.innerHTML = `<div class="al-modal-bg"></div><div class="al-modal-box"><div class="al-modal-header"><span>🎯 创建目标</span><button class="al-modal-close">×</button></div><form id="al-goal-form"><div class="al-form-item"><label>目标名称</label><input type="text" id="al-goal-title" required placeholder="例如：学习一门新语言"></div><div class="al-form-item"><label>目标层级</label><select id="al-goal-level">${levelOptions}</select></div><div class="al-form-item"><label>截止日期</label><input type="date" id="al-goal-due"></div><div class="al-form-actions"><button type="button" id="al-cancel-goal">取消</button><button type="submit" class="mod-cta">创建</button></div></form></div>`;
+    modal.innerHTML = `<div class="al-modal-bg"></div><div class="al-modal-box"><div class="al-modal-header"><span>🎯 创建目标</span><button class="al-modal-close">×</button></div><form id="al-goal-form"><div class="al-form-item"><label>目标名称</label><input type="text" id="al-goal-title" required placeholder="例如：学习一门新语言"></div><div class="al-form-item"><label>目标层级</label><select id="al-goal-level">${levelOptions}</select></div><div class="al-form-item"><label>上级目标（可选）</label><select id="al-goal-parent"><option value="">无</option>${parentOptions}</select></div><div class="al-form-item"><label>截止日期</label><input type="date" id="al-goal-due"></div><div class="al-form-actions"><button type="button" id="al-cancel-goal">取消</button><button type="submit" class="mod-cta">创建</button></div></form></div>`;
     document.body.appendChild(modal);
     const close = () => modal.remove();
     modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
     modal.querySelector('.al-modal-close')?.addEventListener('click', close);
     modal.querySelector('#al-cancel-goal')?.addEventListener('click', close);
-    modal.querySelector('#al-goal-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const title = (modal.querySelector('#al-goal-title') as HTMLInputElement).value.trim(); const level = Number((modal.querySelector('#al-goal-level') as HTMLSelectElement).value) as GoalLevel; const due = (modal.querySelector('#al-goal-due') as HTMLInputElement).value || null; if (!title) { new Notice('请输入目标名称'); return; } try { await this.plugin.getGoalManager().createGoal({ title, level, due }); new Notice('目标创建成功！'); close(); this.loadAndRender(); } catch (error) { new Notice('创建失败: ' + (error as Error).message); } });
+    modal.querySelector('#al-goal-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const title = (modal.querySelector('#al-goal-title') as HTMLInputElement).value.trim(); const level = Number((modal.querySelector('#al-goal-level') as HTMLSelectElement).value) as GoalLevel; const parent = (modal.querySelector('#al-goal-parent') as HTMLSelectElement).value || null; const due = (modal.querySelector('#al-goal-due') as HTMLInputElement).value || null; if (!title) { new Notice('请输入目标名称'); return; } try { await this.plugin.getGoalManager().createGoal({ title, level, due, parent }); new Notice('目标创建成功！'); close(); this.loadAndRender(); } catch (error) { new Notice('创建失败: ' + (error as Error).message); } });
     
     // 自动聚焦到标题输入框
     setTimeout(() => (modal.querySelector('#al-goal-title') as HTMLInputElement)?.focus(), 100);
@@ -2883,7 +3126,7 @@ export class DashboardView extends ItemView {
       .al-detail-description-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-description-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-description-icon{font-size:16px}.al-detail-description-title{font-size:13px;font-weight:600;color:var(--text-secondary)}.al-detail-description-content{padding:16px;color:var(--text-muted);font-size:14px;line-height:1.6;cursor:pointer;min-height:60px}.al-detail-description-content:hover{color:var(--text-primary)}.al-detail-description-block .al-field-edit-textarea{width:100%;max-width:none}
       .al-progress-slider-container{display:flex;align-items:center;gap:12px;width:100%;max-width:280px}.al-progress-slider{-webkit-appearance:none;width:100%;height:6px;border-radius:3px;background:var(--background-modifier-border);outline:none}.al-progress-slider::-webkit-slider-thumb{-webkit-appearance:none;width:18px;height:18px;border-radius:50%;background:var(--interactive-accent);cursor:pointer;border:2px solid var(--background-primary);box-shadow:0 2px 4px rgba(0,0,0,0.2)}.al-progress-slider::-moz-range-thumb{width:18px;height:18px;border-radius:50%;background:var(--interactive-accent);cursor:pointer;border:2px solid var(--background-primary);box-shadow:0 2px 4px rgba(0,0,0,0.2)}.al-progress-value{font-size:14px;font-weight:500;color:var(--text-primary);min-width:40px;text-align:right}
       .al-detail-tasks-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-tasks-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-tasks-icon{font-size:16px}.al-detail-tasks-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-detail-tasks-count{background:var(--interactive-accent);color:#fff;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px}.al-detail-task-summary{display:flex;gap:20px;padding:10px 16px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--border-color)}.al-detail-tasks{display:flex;flex-direction:column;gap:2px;padding:8px 16px}.al-detail-task{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;cursor:pointer;transition:all .15s}.al-detail-task:hover{background:var(--background-modifier-hover)}.al-detail-task .task-list-item-checkbox{margin:0 8px 0 0;width:16px;height:16px;cursor:pointer;vertical-align:middle;align-self:center}.al-detail-tasks-empty{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-task-title{flex:1;font-size:14px;color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-priority{font-size:13px;font-weight:500;flex-shrink:0;min-width:50px;text-align:right}
-      .al-detail-references-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-references-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-references-icon{font-size:16px}.al-detail-references-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-detail-references-count{background:var(--interactive-accent);color:#fff;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px}.al-detail-references-content{padding:8px 16px;max-height:280px;overflow-y:auto}.al-detail-references-loading{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-references-empty{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-reference-item{padding:10px 12px;border-radius:6px;cursor:pointer;transition:all .15s;margin-bottom:4px}.al-detail-reference-item:hover{background:var(--background-modifier-hover)}.al-reference-file-info{display:flex;align-items:center;gap:6px;margin-bottom:6px}.al-reference-file-icon{font-size:12px;color:var(--text-muted)}.al-reference-file-name{font-size:12px;color:var(--interactive-accent);font-weight:500}.al-reference-line-number{font-size:11px;color:var(--text-muted);padding:1px 4px;background:var(--background-primary);border-radius:3px}.al-reference-content{font-size:13px;color:var(--text-secondary);line-height:1.5;white-space:pre-wrap;word-break:break-all}.al-reference-highlight{background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent);padding:1px 3px;border-radius:3px;font-weight:500}
+      .al-detail-references-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-references-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-references-icon{font-size:16px}.al-detail-references-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-detail-references-count{background:var(--interactive-accent);color:#fff;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px}.al-detail-references-content{padding:8px 16px;max-height:280px;overflow-y:auto}.al-detail-references-loading{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-references-empty{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-detail-reference-item{padding:10px 12px;border-radius:6px;cursor:pointer;transition:all .15s;margin-bottom:4px}.al-detail-reference-item:hover{background:var(--background-modifier-hover)}.al-reference-file-info{display:flex;align-items:center;gap:6px;margin-bottom:6px}.al-reference-file-icon{font-size:12px;color:var(--text-muted)}.al-reference-file-name{font-size:12px;color:var(--interactive-accent);font-weight:500}.al-reference-line-number{font-size:11px;color:var(--text-muted);padding:1px 4px;background:var(--background-primary);border-radius:3px}.al-reference-content{font-size:13px;color:var(--text-secondary);line-height:1.5;white-space:pre-wrap;word-break:break-all}.al-reference-highlight{background:color-mix(in srgb,var(--interactive-accent) 20%,transparent);color:var(--interactive-accent);padding:1px 3px;border-radius:3px;font-weight:500}.al-detail-subgoals-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-subgoals-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-subgoals-icon{font-size:16px}.al-detail-subgoals-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-detail-subgoals-count{background:var(--interactive-accent);color:#fff;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px}.al-detail-subgoals-list{padding:8px 16px;max-height:300px;overflow-y:auto}.al-detail-subgoal-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;cursor:pointer;transition:all .15s;margin-bottom:4px}.al-detail-subgoal-item:hover{background:var(--background-modifier-hover)}.al-subgoal-level{font-size:11px;padding:2px 8px;border-radius:4px;color:#fff;font-weight:600;flex-shrink:0}.al-subgoal-title{font-size:14px;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-subgoal-progress{display:flex;align-items:center;gap:8px;flex-shrink:0}.al-subgoal-progress .al-progress-bar-small{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden;max-width:80px}.al-subgoal-progress .al-progress-fill-small{height:100%;background:var(--interactive-accent);border-radius:3px}.al-subgoal-progress span{font-size:12px;color:var(--text-secondary);min-width:40px;text-align:right}.al-detail-subgoals-empty{text-align:center;padding:20px;color:var(--text-muted);font-size:14px}.al-parent-field-row{cursor:pointer}.al-parent-field-row:hover{background:var(--background-modifier-hover)}.al-parent-value{color:var(--text-muted)}.al-parent-value.has-parent{color:var(--interactive-accent);text-decoration:underline}
       .al-gallery-add-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;min-height:120px;border:1px dashed var(--border-color);border-radius:10px;color:var(--text-muted);cursor:pointer;transition:all .15s}.al-gallery-add-card:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:var(--background-secondary)}.al-gallery-add-card .al-gallery-add-icon{font-size:28px;opacity:.5}.al-gallery-add-card:hover .al-gallery-add-icon{opacity:1}
       .al-modal-task-detail .al-modal-box{max-width:500px;width:90%}.al-modal-task-detail .al-modal-body{padding:20px;max-height:70vh;overflow-y:auto}.al-task-detail-title input{width:100%;font-size:18px;font-weight:600;border:1px solid var(--border-color);border-radius:6px;padding:12px;background:var(--background-primary);color:var(--text-primary);box-sizing:border-box}.al-task-detail-title input:focus{outline:none;border-color:var(--interactive-accent)}.al-task-detail-fields{display:flex;flex-direction:column;gap:12px;margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color)}.al-task-detail-field{display:flex;align-items:center;gap:12px}.al-task-detail-field label{width:100px;flex-shrink:0;font-size:14px;color:var(--text-secondary)}.al-task-detail-field select,.al-task-detail-field input{flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px}.al-task-detail-field select:focus,.al-task-detail-field input:focus{outline:none;border-color:var(--interactive-accent)}.al-task-detail-desc-section{margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color)}.al-task-detail-desc-section label{display:block;font-size:14px;color:var(--text-secondary);margin-bottom:8px}.al-task-detail-desc-section textarea{width:100%;min-height:100px;padding:12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px;resize:vertical;box-sizing:border-box}.al-task-detail-desc-section textarea:focus{outline:none;border-color:var(--interactive-accent)}.al-modal-footer{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-top:1px solid var(--border-color);background:var(--background-secondary)}.al-modal-footer .al-btn-danger{background:transparent;border:1px solid var(--text-red);color:var(--text-red);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:14px}.al-modal-footer .al-btn-danger:hover{background:var(--text-red);color:#fff}.al-modal-footer .al-btn-secondary{background:transparent;border:1px solid var(--border-color);color:var(--text-secondary);padding:8px 16px;border-radius:6px;cursor:pointer;font-size:14px}.al-modal-footer .al-btn-secondary:hover{background:var(--background-modifier-hover)}
       .al-custom-fields{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border-color)}.al-custom-field{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px}.al-custom-field-label{color:var(--text-muted);min-width:60px}.al-custom-field-value{color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-custom-tag{display:inline-block;padding:2px 6px;background:var(--background-primary);border-radius:4px;font-size:11px;color:var(--interactive-accent);margin-right:4px}.al-custom-link{color:var(--interactive-accent);text-decoration:none}.al-custom-link:hover{text-decoration:underline}.al-custom-field-cell{font-size:12px;color:var(--text-secondary)}.al-settings-desc{font-size:12px;color:var(--text-muted);margin:4px 0}
