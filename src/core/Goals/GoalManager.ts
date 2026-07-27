@@ -24,6 +24,7 @@ export interface UpdateGoalDTO {
   level?: GoalLevel;
   start?: string;
   weight?: number;
+  cover?: string | null;
 }
 
 export class GoalManager {
@@ -98,6 +99,7 @@ export class GoalManager {
       'A-start': String(frontmatter['A-start'] || new Date().toISOString().split('T')[0]),
       'A-due': frontmatter['A-due'] ? String(frontmatter['A-due']) : null,
       'A-description': description,
+      'A-cover': frontmatter['A-cover'] ? String(frontmatter['A-cover']) : null,
       'A-created': String(frontmatter['A-created'] || ''),
       'A-updated': String(frontmatter['A-updated'] || new Date().toISOString())
     };
@@ -156,6 +158,7 @@ export class GoalManager {
       'A-start': now,
       'A-due': dto.due || null,
       'A-description': dto.description || null,
+      'A-cover': null,
       'A-created': now,
       'A-updated': now
     };
@@ -188,6 +191,7 @@ export class GoalManager {
       `A-weight: ${goal['A-weight']}`,
       `A-start: ${goal['A-start']}`,
       `A-due: ${goal['A-due'] || ''}`,
+      `A-cover: ${goal['A-cover'] || ''}`,
       `A-created: ${goal['A-created']}`,
       `A-updated: ${goal['A-updated']}`,
       '---',
@@ -229,6 +233,7 @@ export class GoalManager {
     if (dto.level !== undefined) goal['A-level'] = dto.level;
     if (dto.start !== undefined) goal['A-start'] = dto.start;
     if (dto.weight !== undefined) goal['A-weight'] = dto.weight;
+    if (dto.cover !== undefined) goal['A-cover'] = dto.cover || null;
     goal['A-updated'] = now;
     
     const content = await this.storage.readFile(this.storage.getGoalPath(id));
@@ -264,6 +269,7 @@ export class GoalManager {
             ['A-due', goal['A-due'] || ''],
             ['A-start', goal['A-start']],
             ['A-weight', goal['A-weight']],
+            ['A-cover', goal['A-cover'] || ''],
             ['A-updated', goal['A-updated']],
           ]) {
             if (!frontmatterFields[key]) {
@@ -299,6 +305,9 @@ export class GoalManager {
         } else if (line.startsWith('A-weight:')) {
           updatedLines.push(`A-weight: ${goal['A-weight']}`);
           frontmatterFields['A-weight'] = true;
+        } else if (line.startsWith('A-cover:')) {
+          updatedLines.push(`A-cover: ${goal['A-cover'] || ''}`);
+          frontmatterFields['A-cover'] = true;
         } else {
           updatedLines.push(line);
         }

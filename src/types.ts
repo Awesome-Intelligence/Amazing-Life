@@ -28,6 +28,7 @@ export interface Goal {
   'A-start': string;
   'A-due': string | null;
   'A-description': string | null;
+  'A-cover': string | null;     // 封面图片URL
   'A-created': string;
   'A-updated': string;
 }
@@ -73,7 +74,7 @@ export interface ParsedLine {
 export type ViewType = 'list' | 'kanban' | 'gallery' | 'calendar' | 'timeline' | 'dashboard';
 
 // 目标字段
-export type GoalField = 'level' | 'title' | 'status' | 'progress' | 'due' | 'created' | 'updated' | 'tasksCount' | 'completedTasksCount';
+export type GoalField = 'level' | 'title' | 'status' | 'progress' | 'due' | 'created' | 'updated' | 'tasksCount' | 'completedTasksCount' | 'cover';
 
 // 任务字段
 export type TaskField = 'title' | 'status' | 'priority' | 'due' | 'goal' | 'tags' | 'created' | 'completed';
@@ -83,8 +84,8 @@ export interface ViewFieldsConfig {
   goal: GoalField[];      // 目标视图显示的字段
   task: TaskField[];      // 任务视图显示的字段
   dashboard: TaskField[]; // 仪表盘任务显示的字段
-  board: TaskField[];     // 看板任务显示的字段
-  list: TaskField[];      // 列表任务显示的字段
+  board: GoalField[];     // 看板目标显示的字段
+  list: GoalField[];      // 列表目标显示的字段
   gallery: GoalField[];   // 画廊目标显示的字段
 }
 
@@ -183,8 +184,8 @@ export const DEFAULT_VIEW_FIELDS: ViewFieldsConfig = {
   goal: ['level', 'title', 'status', 'progress', 'due'],
   task: ['title', 'priority', 'status', 'due', 'goal'],
   dashboard: ['title', 'priority', 'due'],
-  board: ['title', 'priority'],
-  list: ['title', 'priority', 'status', 'due', 'goal'],
+  board: ['level', 'title', 'status', 'progress'],
+  list: ['level', 'title', 'status', 'progress', 'due'],
   gallery: ['level', 'title', 'progress', 'tasksCount']
 };
 
@@ -198,7 +199,8 @@ export const GOAL_FIELD_LABELS: Record<GoalField, string> = {
   'created': '创建时间',
   'updated': '更新时间',
   'tasksCount': '任务数量',
-  'completedTasksCount': '已完成数'
+  'completedTasksCount': '已完成数',
+  'cover': '封面图'
 };
 
 // 所有可用的任务字段
@@ -229,6 +231,7 @@ export interface ViewTab {
 // 设置接口
 export interface PluginSettings {
   dataPath: string;           // 插件数据目录
+  coverPath: string;          // 封面图存储目录
   dailyPath: string;          // 日记目录
   weeklyPath: string;         // 周记目录
   monthlyPath: string;        // 月记目录
@@ -271,6 +274,7 @@ export const PRIORITY_NAMES: Record<TaskPriority, string> = {
 // 默认设置
 export const DEFAULT_SETTINGS: PluginSettings = {
   dataPath: 'Amazing Life',
+  coverPath: 'Amazing Life/Covers',
   dailyPath: 'Daily',
   weeklyPath: 'Weekly',
   monthlyPath: 'Monthly',

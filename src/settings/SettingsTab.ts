@@ -42,6 +42,17 @@ export class SettingsTab extends PluginSettingTab {
       });
     
     new Setting(containerEl)
+      .setName('封面图目录')
+      .setDesc('上传的封面图片存放位置')
+      .addText(text => {
+        text.setValue(this.settings.coverPath);
+        text.onChange(value => {
+          this.settings.coverPath = value || DEFAULT_SETTINGS.coverPath;
+          this.onSettingsChange(this.settings);
+        });
+      });
+    
+    new Setting(containerEl)
       .setName('日记目录')
       .setDesc('每日日记存放位置')
       .addText(text => {
@@ -150,11 +161,11 @@ export class SettingsTab extends PluginSettingTab {
     // 仪表盘任务字段
     this.createFieldSettings(containerEl, '仪表盘任务', 'dashboard', 'task');
     
-    // 看板任务字段
-    this.createFieldSettings(containerEl, '看板任务', 'board', 'task');
+    // 看板目标字段
+    this.createFieldSettings(containerEl, '看板目标', 'board', 'goal');
     
-    // 列表任务字段
-    this.createFieldSettings(containerEl, '列表任务', 'list', 'task');
+    // 列表目标字段
+    this.createFieldSettings(containerEl, '列表目标', 'list', 'goal');
     
     // 画廊目标字段
     this.createFieldSettings(containerEl, '画廊目标', 'gallery', 'goal');
