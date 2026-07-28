@@ -2,7 +2,7 @@
  * Dashboard View - Clean Layout Version with View Switching
  */
 
-import { ItemView, Notice, Modal, setIcon, TFile, Menu } from 'obsidian';
+import { ItemView, Notice, Modal, setIcon, TFile, Menu, MarkdownRenderer } from 'obsidian';
 import { Goal, Task, GoalLevel, TaskStatus, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS, ViewTab, ViewTabType, getDefaultViewTabs, CustomFieldConfig } from '../types';
 import AmazingLife from '../main';
 
@@ -590,6 +590,39 @@ export class DashboardView extends ItemView {
      this.addStyles();
     this.setTabIcons();
     this.loadGoalReferences();
+    this.renderMarkdownTables();
+  }
+  
+  private renderMarkdownTables(): void {
+    if (this.currentView !== 'list') return;
+    
+    this.containerEl.querySelectorAll('.al-markdown-placeholder').forEach(el => {
+      const markdown = decodeURIComponent(el.getAttribute('data-markdown') || '');
+      const goalIds = (el.getAttribute('data-goal-ids') || '').split(',');
+      
+      el.innerHTML = '';
+      MarkdownRenderer.renderMarkdown(markdown, el as HTMLElement, '', this.plugin);
+      
+      // 为表格行添加点击事件
+      const rows = el.querySelectorAll('tbody tr');
+      rows.forEach((row, index) => {
+        const htmlRow = row as HTMLElement;
+        htmlRow.style.cursor = 'pointer';
+        htmlRow.style.transition = 'background 0.15s';
+        row.addEventListener('mouseenter', () => {
+          htmlRow.style.background = 'var(--background-modifier-hover)';
+        });
+        row.addEventListener('mouseleave', () => {
+          htmlRow.style.background = '';
+        });
+        row.addEventListener('click', () => {
+          const goalId = goalIds[index];
+          if (goalId) {
+            this.navigateTo('goal-detail', goalId, null);
+          }
+        });
+      });
+    });
   }
   
   private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], weekComplete: number, activeTasks: number): string {
@@ -1107,11 +1140,9 @@ export class DashboardView extends ItemView {
   
   private renderListView(allGoals: Goal[], allTasks: Task[]): string {
     const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
     const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
     const fields = this.getGoalFields();
     const customFields = this.getEnabledCustomFields();
-    const showCover = fields.includes('cover');
     const showLevel = fields.includes('level');
     const showStatus = fields.includes('status');
     const showProgress = fields.includes('progress');
@@ -1120,49 +1151,43 @@ export class DashboardView extends ItemView {
     
     if (allGoals.length === 0) return `<div class="al-table-view"><div class="al-table-empty">${this.renderEmpty('🎯', '暂无目标', '')}</div><div class="al-add-goal-link" id="al-list-add-goal">+ 添加目标</div></div>`;
     
-    const headerCells: string[] = [];
-    headerCells.push('<th style="width:40px"></th>');
-    if (showCover) headerCells.push('<th style="width:60px">封面</th>');
-    headerCells.push('<th>目标名称</th>');
-    if (showLevel) headerCells.push('<th style="width:100px">层级</th>');
-    if (showStatus) headerCells.push('<th style="width:100px">状态</th>');
-    if (showProgress) headerCells.push('<th style="width:80px">进度</th>');
-    if (showDue) headerCells.push('<th style="width:120px">截止日期</th>');
-    if (showTasksCount) headerCells.push('<th style="width:80px">任务</th>');
-    // 自定义字段列
-    customFields.forEach(field => {
-      headerCells.push(`<th style="width:120px">${field.label}</th>`);
-    });
+    // 构建 Markdown 表格头
+    const headerCells: string[] = ['目标名称'];
+    if (showLevel) headerCells.push('层级');
+    if (showStatus) headerCells.push('状态');
+    if (showProgress) headerCells.push('进度');
+    if (showDue) headerCells.push('截止日期');
+    if (showTasksCount) headerCells.push('任务');
+    customFields.forEach(field => headerCells.push(field.label));
     
-    const headerHtml = headerCells.join('');
+    const headerRow = '| ' + headerCells.join(' | ') + ' |';
+    const separatorRow = '| ' + headerCells.map(() => '---').join(' | ') + ' |';
     
-    const rowsHtml = allGoals.map(goal => {
+    // 构建数据行
+    const rows = allGoals.map(goal => {
       const tasks = allTasks.filter(t => t['A-goal'] === goal['A-id']);
       const completedCount = tasks.filter(t => t['A-status'] === 'completed').length;
-      const coverUrl = this.getCoverImageUrl(goal['A-cover']);
-      const cells: string[] = [];
-      cells.push('<td><span class="al-level-dot" style="background:' + levelColors[goal['A-level']] + '"></span></td>');
-      if (showCover) {
-        cells.push('<td class="al-table-cover">' + (coverUrl ? `<img src="${coverUrl}" alt="封面图">` : '') + '</td>');
-      }
-      cells.push(`<td class="al-table-title">${goal['A-title']}</td>`);
-      if (showLevel) cells.push(`<td><span class="al-goal-level" data-level="${goal['A-level']}" style="background:${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span></td>`);
-      if (showStatus) cells.push(`<td><span class="al-status-badge status-${goal['A-status']}">${statusNames[goal['A-status']]}</span></td>`);
-      if (showProgress) cells.push(`<td><span class="al-progress-text">${goal['A-progress']}%</span></td>`);
-      if (showDue) cells.push(`<td>${goal['A-due'] || '-'}</td>`);
-      if (showTasksCount) cells.push(`<td>${tasks.length} (${completedCount})</td>`);
+      
+      const cells: string[] = [goal['A-title']];
+      if (showLevel) cells.push(levelNames[goal['A-level']]);
+      if (showStatus) cells.push(statusNames[goal['A-status']]);
+      if (showProgress) cells.push(`${goal['A-progress']}%`);
+      if (showDue) cells.push(goal['A-due'] || '-');
+      if (showTasksCount) cells.push(`${tasks.length} (${completedCount})`);
       
       // 自定义字段值
       customFields.forEach(field => {
         const value = goal[field.key];
-        const formattedValue = this.formatCustomFieldValue(value, field.type);
-        cells.push(`<td class="al-custom-field-cell">${formattedValue}</td>`);
+        cells.push(this.formatCustomFieldValue(value, field.type));
       });
       
-      return `<tr class="al-table-row" data-goal-id="${goal['A-id']}">${cells.join('')}</tr>`;
-    }).join('');
+      return '| ' + cells.join(' | ') + ' |';
+    });
     
-    return `<div class="al-table-view"><table class="al-table"><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table><div class="al-add-goal-link" id="al-list-add-goal">+ 添加目标</div></div>`;
+    const tableMarkdown = headerRow + '\n' + separatorRow + '\n' + rows.join('\n');
+    const goalIds = allGoals.map(g => g['A-id']).join(',');
+    
+    return `<div class="al-table-view"><div class="al-markdown-table-wrapper"><div class="al-markdown-placeholder" data-markdown="${encodeURIComponent(tableMarkdown)}" data-goal-ids="${goalIds}"></div></div><div class="al-add-goal-link" id="al-list-add-goal">+ 添加目标</div></div>`;
   }
   
   private renderBoardView(allGoals: Goal[], allTasks: Task[]): string {
@@ -1737,12 +1762,6 @@ export class DashboardView extends ItemView {
     
     // Task click events (in detail views) - 记录历史
     content.querySelectorAll('.al-detail-task').forEach(el => { el.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.task-list-item-checkbox')) { return; } const taskId = (e.currentTarget as HTMLElement).getAttribute('data-task-id'); if (taskId) { this.showTaskDetailModal(taskId); } }); });
-    
-    // Goal row click in list view - 记录历史
-    content.querySelectorAll('.al-table-row[data-goal-id]').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.navigateTo('goal-detail', goalId, null); } }); });
-    
-    // Goal tag click in list view
-    content.querySelectorAll('.al-goal-tag').forEach(el => { el.addEventListener('click', (e) => { e.stopPropagation(); const goalId = (e.target as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.selectedGoalId = goalId; this.currentView = 'goal-detail'; this.render(); } }); });
     
     // Task goal card click
     content.querySelectorAll('.al-task-goal-card').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.navigateTo('goal-detail', goalId, null); } }); });
@@ -3133,7 +3152,7 @@ export class DashboardView extends ItemView {
     style.textContent = `
       .al-dashboard{padding:0;height:100%;display:flex;flex-direction:column;overflow:hidden}.al-page{display:flex;flex-direction:column;height:100%;overflow:hidden}.al-header{display:flex;justify-content:space-between;align-items:center;padding:16px 24px;border-bottom:1px solid var(--border-color);flex-shrink:0}.al-header-left{display:flex;flex-direction:column;gap:2px}.al-title{display:flex;align-items:center;gap:8px;font-size:18px;font-weight:600;color:var(--text-primary)}.al-date{font-size:12px;color:var(--text-secondary)}.al-header-actions{display:flex;gap:8px}.al-header-actions button{display:inline-flex;align-items:center;gap:4px}.al-view-tabs{display:flex;gap:4px;padding:8px 24px;background:var(--background-primary);border-bottom:1px solid var(--border-color);flex-shrink:0;overflow-x:auto;position:relative;z-index:999}.al-view-tab{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;font-size:13px;transition:all .15s;position:relative;white-space:nowrap}.al-view-tab:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-view-tab.active{background:var(--interactive-accent);color:#fff}.al-tab-name{margin-right:4px}.al-tab-name-edit{border:1px solid var(--interactive-accent);border-radius:4px;padding:4px 8px;background:var(--background-primary);color:var(--text-primary);font-size:13px;outline:none;min-width:60px;max-width:150px;box-shadow:0 0 0 2px color-mix(in srgb,var(--interactive-accent) 30%,transparent)}.al-tab-context-menu{display:none;position:fixed;top:0;left:0;background:var(--background-primary);border:1px solid var(--border-color);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:100000;min-width:160px;padding:4px}.al-tab-context-menu.show{display:block}.al-tab-context-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;color:var(--text-primary);cursor:pointer;font-size:13px;text-align:left;line-height:1.5}.al-tab-context-option:hover{background:var(--background-modifier-hover)}.al-tab-context-option .al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0}.al-tab-context-option:hover .al-tab-icon{color:var(--text-primary)}.al-tab-context-option.al-tab-context-option-danger{color:var(--text-red)!important}.al-tab-context-option.al-tab-context-option-danger .al-tab-icon{color:var(--text-red)!important}.al-tab-context-option.al-tab-context-option-danger .al-tab-icon svg{color:var(--text-red)!important;fill:var(--text-red)!important;stroke:var(--text-red)!important}.al-view-tab-add{padding:8px 12px;opacity:0.6;border:none;background:transparent;color:var(--text-secondary);border-radius:6px;cursor:pointer;display:flex;align-items:center;justify-content:center}.al-view-tab-add:hover{opacity:1;background:var(--background-modifier-hover);color:var(--text-primary)}.al-add-view-dropdown{display:none;position:fixed;top:0;left:0;background:var(--background-primary);border:1px solid var(--border-color);border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,0.25);z-index:100000;min-width:160px;padding:4px}.al-add-view-dropdown.show{display:block}.al-add-view-option{display:flex;align-items:center;gap:10px;width:100%;padding:6px 12px;color:var(--text-primary);cursor:pointer;font-size:13px;text-align:left;line-height:1.5}.al-add-view-option:hover{background:var(--background-modifier-hover)}.al-add-view-option .al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;color:var(--text-secondary);flex-shrink:0}.al-add-view-option:hover .al-tab-icon{color:var(--text-primary)}.al-tab-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center}.al-tab-icon svg{width:16px;height:16px}.al-body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden}.al-main{padding:16px 24px;gap:16px;overflow-y:auto}.al-main-full{padding:16px 24px;gap:16px;overflow-y:auto}
       .al-detail-view{flex:1;display:flex;flex-direction:column;overflow:hidden}.al-detail-header{display:flex;align-items:center;gap:16px;padding:12px 16px;background:var(--background-secondary);border-bottom:1px solid var(--border-color);flex-shrink:0}.al-detail-icon{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:6px;cursor:pointer;color:var(--text-secondary);transition:all .15s}.al-detail-icon:hover{background:var(--background-modifier-hover);color:var(--text-primary)}.al-detail-delete-btn{color:var(--text-red)}.al-detail-delete-btn:hover{background:color-mix(in srgb,var(--text-red) 10%,transparent);color:var(--text-red)}.al-detail-title{display:flex;align-items:center;gap:12px;flex:1}.al-detail-title h2{font-size:20px;font-weight:600;color:var(--text-primary);margin:0}.al-detail-content{flex:1;display:flex;overflow:hidden}.al-detail-main{flex:1;padding:24px;overflow-y:auto}.al-detail-section{margin-bottom:24px}.al-detail-section h3{font-size:14px;font-weight:600;color:var(--text-secondary);margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border-color)}.al-detail-progress-section{margin-bottom:20px;padding:16px;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color)}.al-detail-progress-label{font-size:13px;color:var(--text-secondary);margin-bottom:8px}.al-detail-progress-large{display:flex;align-items:center;gap:12px}.al-progress-bar-large{flex:1;height:12px;background:var(--background-modifier-border);border-radius:6px;overflow:hidden}.al-progress-fill-large{height:100%;background:var(--interactive-accent);border-radius:6px;transition:width .3s}.al-detail-progress-value{font-size:16px;font-weight:700;color:var(--text-primary);min-width:48px;text-align:right}.al-detail-description-section{margin-bottom:20px}.al-detail-action-row{display:flex;align-items:center;gap:10px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-action-row:hover{border-color:var(--interactive-accent);background:var(--background-modifier-hover)}.al-detail-action-row-add{background:color-mix(in srgb,var(--interactive-accent) 10%,transparent);border-color:var(--interactive-accent);border-style:dashed}.al-detail-action-row-add:hover{background:color-mix(in srgb,var(--interactive-accent) 15%,transparent);border-style:solid}.al-detail-action-icon{font-size:18px}.al-detail-action-text{font-size:14px;color:var(--text-secondary);flex:1;text-align:left}.al-detail-stats{display:flex;gap:16px}.al-detail-stat{flex:1;display:flex;flex-direction:column;align-items:center;padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color)}.al-detail-stat-num{font-size:28px;font-weight:700;color:var(--text-primary)}.al-detail-stat-label{font-size:12px;color:var(--text-secondary);margin-top:4px}.al-detail-stat-success .al-detail-stat-num{color:var(--text-green)}.al-detail-tasks{display:flex;flex-direction:column;gap:8px}.al-detail-task{display:flex;align-items:flex-start;gap:12px;padding:12px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-detail-task:hover{border-color:var(--interactive-accent)}.al-detail-task-content{flex:1}.al-detail-task-title{font-size:14px;font-weight:500;color:var(--text-primary);margin-bottom:4px}.al-detail-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-detail-task-meta{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary)}.al-action-btn-success{background:var(--text-green);color:#fff;border:none;border-radius:6px;cursor:pointer}.al-action-btn-danger{background:transparent;color:var(--text-red);border:1px solid var(--text-red);border-radius:6px;cursor:pointer}.al-task-actions{display:flex;flex-direction:column;gap:8px}.al-task-goal-card{padding:16px;background:var(--background-secondary);border-radius:8px;border:1px solid var(--border-color);cursor:pointer;transition:all .15s}.al-task-goal-card:hover{border-color:var(--interactive-accent)}.al-task-goal-header{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-task-goal-progress{display:flex;align-items:center;gap:8px}.al-task-goal-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-task-goal-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-task-goal-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}
-      .al-table-view{flex:1;padding:16px;overflow:auto}.al-table-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-table{width:100%;border-collapse:collapse;background:var(--background-secondary);border-radius:10px;overflow:hidden}.al-table th{text-align:left;padding:12px 16px;background:var(--background-primary);border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.5px}.al-table td{padding:12px 16px;border-bottom:1px solid var(--border-color);font-size:13px;color:var(--text-primary)}.al-table-row:hover{background:var(--background-modifier-hover);cursor:pointer}.al-table-row.completed td{color:var(--text-muted)}.al-table-row.completed .al-table-title{text-decoration:line-through}.al-table-title{font-weight:600}.al-goal-tag{font-weight:500;font-size:12px;cursor:pointer}.al-goal-tag:hover{text-decoration:underline}.al-status-badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:500}.al-status-badge.status-pending,.al-status-badge.status-active{background:var(--interactive-accent);color:#fff}.al-status-badge.status-in-progress{background:color-mix(in srgb,var(--text-blue) 20%,transparent);color:var(--text-blue)}.al-status-badge.status-completed{background:color-mix(in srgb,var(--text-green) 20%,transparent);color:var(--text-green)}.al-status-badge.status-abandoned,.al-status-badge.status-cancelled{background:var(--background-modifier-border);color:var(--text-muted)}.al-level-dot{width:10px;height:10px;border-radius:50%;display:inline-block}.al-progress-text{font-weight:500}.al-table-cover{width:60px;height:40px;overflow:hidden;border-radius:4px}.al-table-cover img{width:100%;height:100%;object-fit:cover}
+      .al-table-view{flex:1;padding:16px;overflow:auto}.al-table-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-markdown-table-wrapper{background:var(--background-secondary);border-radius:10px;overflow:hidden;padding:12px}.al-markdown-placeholder table{width:100%;border-collapse:collapse;margin:0}.al-markdown-placeholder th{text-align:left;padding:10px 14px;background:var(--background-primary);border-bottom:1px solid var(--border-color);font-size:12px;font-weight:600;color:var(--text-secondary)}.al-markdown-placeholder td{padding:10px 14px;border-bottom:1px solid var(--border-color);font-size:13px;color:var(--text-primary)}.al-markdown-placeholder tbody tr:last-child td{border-bottom:none}.al-markdown-placeholder blockquote{margin:0}.al-goal-tag{font-weight:500;font-size:12px;cursor:pointer}.al-goal-tag:hover{text-decoration:underline}
       .al-board-group-label{font-size:12px;color:var(--text-secondary)}.al-board-view{display:flex;flex-direction:row;flex:1;gap:12px;padding:16px;overflow-x:auto;min-height:0;background:var(--background-primary);align-items:stretch}.al-board-empty{display:flex;justify-content:center;align-items:center;width:100%}.al-board-column{flex:0 0 260px;display:flex;flex-direction:column;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);overflow:hidden;max-height:100%}.al-board-column-header{display:flex;justify-content:space-between;align-items:center;padding:12px;border-bottom:2px solid var(--column-accent,var(--interactive-accent));background:var(--background-primary);flex-shrink:0}.al-board-column-title{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text-primary);overflow:visible;flex-wrap:wrap;white-space:nowrap}.al-board-column-body{flex:1;padding:8px;display:flex;flex-direction:column;gap:6px;overflow-y:auto;min-height:150px}.al-level-badge{font-size:12px;padding:3px 10px;border-radius:6px;color:#fff;font-weight:600;white-space:nowrap}.al-status-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}.al-goal-card{padding:14px;background:var(--background-primary);border-radius:8px;border:1px solid var(--border-color);cursor:grab;transition:all .15s;margin-bottom:8px}.al-goal-card:hover{border-color:var(--interactive-accent);box-shadow:0 2px 8px rgba(0,0,0,0.1)}.al-goal-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:10px;line-height:1.3}.al-goal-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:10px}.al-goal-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-goal-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent)}.al-goal-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-goal-card-meta{display:flex;gap:12px;font-size:12px;color:var(--text-muted)}.al-goal-card-cover{width:100%;height:80px;overflow:hidden;border-radius:6px;margin-bottom:10px}.al-goal-card-cover img{width:100%;height:100%;object-fit:cover}.al-goal-card.dragging{opacity:0.3;cursor:grabbing}.drag-ghost{position:fixed;z-index:9999;pointer-events:none;opacity:0.9;transform:rotate(2deg);box-shadow:0 8px 24px rgba(0,0,0,0.2)}.al-board-column.drop-target{border:2px dashed var(--interactive-accent);background:color-mix(in srgb,var(--interactive-accent) 10%,transparent)}
       .al-gallery-view{flex:1;padding:16px;overflow-y:auto}.al-gallery-empty{display:flex;justify-content:center;align-items:center;height:100%}.al-gallery-section{margin-bottom:24px}.al-gallery-section-title{font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border-color);display:flex;align-items:center;gap:8px}.al-gallery-section-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}.al-gallery-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}.al-gallery-card{position:relative;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);padding:16px;transition:all .2s;cursor:pointer}.al-gallery-card:hover{border-color:var(--interactive-accent);box-shadow:0 4px 12px rgba(0,0,0,.1);transform:translateY(-2px)}.al-gallery-card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.al-gallery-card-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:12px;line-height:1.4}.al-gallery-card-progress{display:flex;align-items:center;gap:8px;margin-bottom:8px}.al-gallery-card-progress .al-progress-bar{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden}.al-gallery-card-progress .al-progress-fill{height:100%;background:var(--interactive-accent);border-radius:3px}.al-gallery-card-progress span{font-size:11px;color:var(--text-secondary);min-width:36px}.al-gallery-card-meta{font-size:11px;color:var(--text-secondary)}.al-gallery-card-tasks{margin-top:12px;padding-top:12px;border-top:1px solid var(--border-color);font-size:12px;color:var(--text-secondary)}.al-gallery-card-cover{width:calc(100% + 32px);height:120px;overflow:hidden;margin:-16px -16px 12px;border-radius:10px 10px 0 0}.al-gallery-card-cover img{width:100%;height:100%;object-fit:cover}
       .al-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(100px,1fr));gap:12px;margin:16px 0}.al-stat{flex-shrink:0;display:flex;flex-direction:column;align-items:center;padding:20px 16px;background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color)}.al-stat-warning{border-color:var(--text-red);background:color-mix(in srgb,var(--text-red) 5%,var(--background-secondary))}.al-stat-num{font-size:32px;font-weight:700;color:var(--text-primary);line-height:1}.al-stat-label{font-size:12px;color:var(--text-secondary);margin-top:8px}
