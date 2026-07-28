@@ -481,4 +481,42 @@ export class TaskManager {
   async startTask(id: string): Promise<Task | null> {
     return this.updateTask(id, { status: 'in-progress' });
   }
+
+  /**
+   * 获取任务的所有引用记录
+   */
+  async getTaskReferences(taskId: string): Promise<Array<{
+    fileName: string;
+    filePath: string;
+    lineContent: string;
+    lineNumber: number;
+  }>> {
+    const backlinks = await this.storage.getBacklinksForTask(taskId);
+    const result: Array<{
+      fileName: string;
+      filePath: string;
+      lineContent: string;
+      lineNumber: number;
+    }> = [];
+
+    for (const backlink of backlinks) {
+      const lines = backlink.content.split('\n');
+
+      for (const lineNum of backlink.lines) {
+        const lineContent = lines[lineNum]?.trim() || '';
+        if (lineContent) {
+          result.push({
+            fileName: backlink.file.name.replace(/\.md$/, ''),
+            filePath: backlink.file.path,
+            lineContent,
+            lineNumber: lineNum + 1
+          });
+        }
+      }
+    }
+
+    result.sort((a, b) => b.lineNumber - a.lineNumber);
+
+    return result;
+  }
 }

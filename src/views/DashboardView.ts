@@ -590,6 +590,7 @@ export class DashboardView extends ItemView {
      this.addStyles();
     this.setTabIcons();
     this.loadGoalReferences();
+    this.loadTaskReferences();
     this.renderMarkdownTables();
   }
   
@@ -1097,10 +1098,23 @@ export class DashboardView extends ItemView {
             <div class="al-detail-section">
               <h3>⚡ 快捷操作</h3>
               <div class="al-task-actions">
-                ${task['A-status'] === 'completed' 
+                ${task['A-status'] === 'completed'
                   ? `<button class="al-action-btn" id="al-uncomplete-task"><span>↩️</span><span>标记为未完成</span></button>`
                   : `<button class="al-action-btn al-action-btn-success" id="al-complete-task"><span>✓</span><span>完成任务</span></button>`
                 }
+              </div>
+            </div>
+
+            <div class="al-detail-section">
+              <h3>📜 引用记录</h3>
+              <div class="al-detail-references-block" id="al-task-references-block">
+                <div class="al-detail-references-header">
+                  <span class="al-detail-references-icon">📄</span>
+                  <span class="al-detail-references-title">日记引用</span>
+                  <span class="al-detail-references-count" id="al-task-references-count">0</span>
+                </div>
+                <div class="al-detail-references-loading" id="al-task-references-loading">加载中...</div>
+                <div class="al-detail-references-content" id="al-task-references-container"></div>
               </div>
             </div>
           </div>
@@ -2264,7 +2278,71 @@ export class DashboardView extends ItemView {
       contentEl.innerHTML = `<div class="al-detail-references-error">加载引用记录失败</div>`;
     }
   }
-  
+
+  private async loadTaskReferences(): Promise<void> {
+    if (this.currentView !== 'task-detail' || !this.selectedTaskId) {
+      return;
+    }
+
+    const loadingEl = this.contentEl.querySelector('#al-task-references-loading');
+    const contentEl = this.contentEl.querySelector('#al-task-references-container');
+    const countEl = this.contentEl.querySelector('#al-task-references-count');
+
+    if (!loadingEl || !contentEl || !countEl) {
+      return;
+    }
+
+    try {
+      const references = await this.plugin.getTaskManager().getTaskReferences(this.selectedTaskId);
+      const task = this.getTask(this.selectedTaskId);
+      const taskTitle = task ? task['A-title'] : '';
+
+      countEl.textContent = references.length.toString();
+      loadingEl.remove();
+
+      if (references.length === 0) {
+        contentEl.innerHTML = `<div class="al-detail-references-empty"><span class="al-empty-text">暂无引用记录</span></div>`;
+        return;
+      }
+
+      const referencesHtml = references.map(ref => {
+        let lineContent = ref.lineContent;
+        if (taskTitle) {
+          lineContent = lineContent.replace(new RegExp(taskTitle, 'g'), `<span class="al-reference-highlight">${taskTitle}</span>`);
+        }
+
+        return `
+          <div class="al-detail-reference-item" data-file-path="${ref.filePath}">
+            <div class="al-reference-file-info">
+              <span class="al-reference-file-icon">📄</span>
+              <span class="al-reference-file-name">${ref.fileName}</span>
+              <span class="al-reference-line-number">${ref.lineNumber}</span>
+            </div>
+            <div class="al-reference-content">${lineContent}</div>
+          </div>
+        `;
+      }).join('');
+
+      contentEl.innerHTML = referencesHtml;
+
+      contentEl.querySelectorAll('.al-detail-reference-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const filePath = item.getAttribute('data-file-path');
+          if (filePath) {
+            const file = this.plugin.app.vault.getAbstractFileByPath(filePath);
+            if (file) {
+              this.plugin.app.workspace.openLinkText(file.path, '');
+            }
+          }
+        });
+      });
+    } catch (error) {
+      console.error('加载引用记录失败:', error);
+      loadingEl.remove();
+      contentEl.innerHTML = `<div class="al-detail-references-error">加载引用记录失败</div>`;
+    }
+  }
+
   private bindCalendarEvents(content: HTMLElement): void {
     // 模式切换
     content.querySelectorAll('.al-calendar-mode-btn').forEach(btn => {

@@ -278,4 +278,52 @@ export class FileStorage {
     
     return result;
   }
+
+  /**
+   * 获取引用任务文件的反向链接
+   */
+  async getBacklinksForTask(taskId: string): Promise<Array<{
+    file: TFile;
+    content: string;
+    lines: number[];
+  }>> {
+    const taskPath = this.getTaskPath(taskId);
+    const taskFile = this.app.vault.getAbstractFileByPath(taskPath);
+    
+    if (!(taskFile instanceof TFile)) {
+      return [];
+    }
+    
+    const resolvedLinks = this.app.metadataCache.resolvedLinks;
+    const result: Array<{
+      file: TFile;
+      content: string;
+      lines: number[];
+    }> = [];
+    
+    for (const [sourcePath, links] of Object.entries(resolvedLinks)) {
+      if (links[taskPath]) {
+        const file = this.app.vault.getAbstractFileByPath(sourcePath);
+        if (!(file instanceof TFile)) continue;
+        
+        const fileContent = await this.app.vault.read(file);
+        const cache = this.app.metadataCache.getFileCache(file);
+        const linksArray = cache?.links || [];
+        const lines: number[] = [];
+        
+        for (const link of linksArray) {
+          const linkPath = this.app.metadataCache.getFirstLinkpathDest(link.link, sourcePath);
+          if (linkPath && linkPath.path === taskPath) {
+            lines.push(link.position.start.line);
+          }
+        }
+        
+        if (lines.length > 0) {
+          result.push({ file, content: fileContent, lines });
+        }
+      }
+    }
+    
+    return result;
+  }
 }
