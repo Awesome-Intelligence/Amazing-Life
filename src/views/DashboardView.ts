@@ -2392,7 +2392,8 @@ export class DashboardView extends ItemView {
       : (settings.viewFields[viewKey as 'dashboard'] as TaskField[]);
     
     const fieldLabels = isGoalView ? GOAL_FIELD_LABELS : TASK_FIELD_LABELS;
-    const fields = Object.keys(fieldLabels) as (GoalField | TaskField)[];
+    // 目标视图排除 title 字段（标题始终显示）
+    const fields = Object.keys(fieldLabels).filter(f => !(isGoalView && f === 'title')) as (GoalField | TaskField)[];
     const viewNames: Record<string, string> = { dashboard: '仪表盘任务', board: '看板目标', list: '列表目标', gallery: '画廊目标', goal: '目标详情' };
     
     const modal = document.createElement('div');
