@@ -1,63 +1,91 @@
-/**
+﻿/**
  * Dashboard View - Clean Layout Version with View Switching
+ *
+ * 主视图类。已将渲染/筛选/弹窗等逻辑拆分至：
+ * - ./view-types：类型与常量
+ * - ./modals：弹窗类（DeleteConfirmModal / CoverImagePickerModal）
+ * - ./filters：FilterHelper（筛选逻辑）
+ * - ./renderers/dashboard：DashboardRenderer（仪表盘 + 列表）
+ * - ./renderers/board：BoardRenderer（看板 + 拖拽）
+ * - ./renderers/gallery：GalleryRenderer（画廊）
+ * - ./renderers/detail：DetailRenderer（目标/任务详情 + 空状态）
+ * - ./renderers/calendar：CalendarRenderer（日历）
+ *
+ * 本类保留：生命周期、导航、标签页管理、数据访问、字段配置、工具方法、
+ * 事件路由（bindEvents）、弹窗编排、引用加载、样式注入。
  */
 
-import { ItemView, Notice, Modal, setIcon, TFile, Menu, MarkdownRenderer } from 'obsidian';
-import { Goal, Task, GoalLevel, TaskStatus, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, TASK_FILTER_FIELDS, ViewTab, ViewTabType, getDefaultViewTabs, CustomFieldConfig } from '../types';
+import { ItemView, Notice, setIcon, TFile, Menu, MarkdownRenderer } from 'obsidian';
+import { Goal, Task, GoalLevel, TaskStatus, TaskPriority, TaskField, GoalField, DEFAULT_VIEW_FIELDS, GOAL_FIELD_LABELS, TASK_FIELD_LABELS, FilterCondition, FilterLogic, FilterOperator, ViewTab, ViewTabType, getDefaultViewTabs, CustomFieldConfig } from '../types';
 import AmazingLife from '../main';
+import { DASHBOARD_VIEW_TYPE } from './view-types';
+import type { ViewType, CalendarViewMode } from './view-types';
+import { DeleteConfirmModal, CoverImagePickerModal } from './modals';
+import { FilterHelper } from './filters';
+import { DashboardRenderer } from './renderers/dashboard';
+import { BoardRenderer } from './renderers/board';
+import { GalleryRenderer } from './renderers/gallery';
+import { DetailRenderer } from './renderers/detail';
+import { CalendarRenderer } from './renderers/calendar';
 
-export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
-
-export type ViewType = 'dashboard' | 'list' | 'board' | 'gallery' | 'goal-detail' | 'task-detail';
-export type CalendarViewMode = 'day' | 'week' | 'month' | 'year';
-export type BoardGroupBy = 'level' | 'goalStatus' | 'parent';
+// 为兼容 main.ts 的 `import { DashboardView, DASHBOARD_VIEW_TYPE } from './views/DashboardView'`，
+// 重新导出常量。
+export { DASHBOARD_VIEW_TYPE } from './view-types';
 
 export class DashboardView extends ItemView {
-  private plugin: AmazingLife;
-  private currentView: ViewType = 'dashboard';
-  private selectedGoalId: string | null = null;
-  private selectedTaskId: string | null = null;
-  private calendarMode: CalendarViewMode = 'day';
-  private calendarDate: Date = new Date();
-  private selectedWeekStart: string | null = null;
-  private selectedMonth: string | null = null;
-  private selectedYear: string | null = null;
-  private selectedDay: string | null = null;
+  public plugin: AmazingLife;
+  public currentView: ViewType = 'dashboard';
+  public selectedGoalId: string | null = null;
+  public selectedTaskId: string | null = null;
+  public calendarMode: CalendarViewMode = 'day';
+  public calendarDate: Date = new Date();
+  public selectedWeekStart: string | null = null;
+  public selectedMonth: string | null = null;
+  public selectedYear: string | null = null;
+  public selectedDay: string | null = null;
   // 拖拽相关
-  private draggingGoalId: string | null = null;
-  private draggingGoalEl: HTMLElement | null = null;
-  private dragGhost: HTMLElement | null = null;
-  private dropTargetColumn: string | null = null;
+  public draggingGoalId: string | null = null;
+  public draggingGoalEl: HTMLElement | null = null;
+  public dragGhost: HTMLElement | null = null;
+  public dropTargetColumn: string | null = null;
   // 导航历史
   private viewHistory: Array<{ view: ViewType; goalId?: string | null; taskId?: string | null }> = [];
   // 临时筛选状态（用于渲染和事件处理）
-  private tempFilterConditions: FilterCondition[] = [];
-  private tempFilterLogic: FilterLogic = 'and';
-  private tempShowFilterBuilder: boolean = false;
-  
+  public tempFilterConditions: FilterCondition[] = [];
+  public tempFilterLogic: FilterLogic = 'and';
+  public tempShowFilterBuilder: boolean = false;
+
+  // 各渲染/工具 helper（组合方式持有）
+  public filterHelper: FilterHelper;
+  public dashboardRenderer: DashboardRenderer;
+  public boardRenderer: BoardRenderer;
+  public galleryRenderer: GalleryRenderer;
+  public detailRenderer: DetailRenderer;
+  public calendarRenderer: CalendarRenderer;
+
   // 生成唯一ID
   private generateFilterId(): string {
     return 'filter_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
   }
-  
+
   private generateTabId(): string {
     return 'tab_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
   }
-  
+
   // 将封面图路径转换为可显示的 URL
-  private getCoverImageUrl(path: string | null): string | null {
+  public getCoverImageUrl(path: string | null): string | null {
     if (!path) return null;
-    
+
     // 如果已经是 http/https URL，直接返回
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return path;
     }
-    
+
     // 如果是 app:// 协议，直接返回
     if (path.startsWith('app://')) {
       return path;
     }
-    
+
     // 如果是 vault 中的文件路径，使用 getResourcePath 转换
     try {
       const file = this.plugin.app.vault.getAbstractFileByPath(path);
@@ -68,23 +96,30 @@ export class DashboardView extends ItemView {
     } catch (e) {
       console.warn('封面图文件不存在:', path);
     }
-    
+
     return null;
   }
-  
+
   constructor(leaf: any, plugin: AmazingLife) {
     super(leaf);
     this.plugin = plugin;
+    // 实例化各 helper，传入自身引用以访问共享状态
+    this.filterHelper = new FilterHelper(this);
+    this.dashboardRenderer = new DashboardRenderer(this);
+    this.boardRenderer = new BoardRenderer(this);
+    this.galleryRenderer = new GalleryRenderer(this);
+    this.detailRenderer = new DetailRenderer(this);
+    this.calendarRenderer = new CalendarRenderer(this);
   }
-  
+
   getViewType(): string { return DASHBOARD_VIEW_TYPE; }
   getDisplayText(): string { return 'Amazing Life'; }
   getIcon(): string { return 'target'; }
-  
+
   async onOpen(): Promise<void> { await this.loadAndRender(); }
   async onClose(): Promise<void> { this.removeStyles(); }
-  
-  private async loadAndRender(): Promise<void> {
+
+  async loadAndRender(): Promise<void> {
     try {
       await this.plugin.getGoalManager().loadGoals();
       await this.plugin.getTaskManager().loadTasks();
@@ -93,30 +128,30 @@ export class DashboardView extends ItemView {
       new Notice('加载数据失败: ' + (error as Error).message);
     }
   }
-  
+
   // 导航到新页面并记录历史
-  private navigateTo(view: ViewType, goalId: string | null, taskId: string | null): void {
+  public navigateTo(view: ViewType, goalId: string | null, taskId: string | null): void {
     // 记录当前状态到历史
     this.viewHistory.push({
       view: this.currentView,
       goalId: this.selectedGoalId,
       taskId: this.selectedTaskId
     });
-    
+
     // 限制历史记录数量
     if (this.viewHistory.length > 20) {
       this.viewHistory.shift();
     }
-    
+
     // 导航到新页面
     this.currentView = view;
     this.selectedGoalId = goalId;
     this.selectedTaskId = taskId;
     this.render();
   }
-  
+
   // 返回上一页
-  private goBack(): void {
+  public goBack(): void {
     if (this.viewHistory.length > 0) {
       const prevState = this.viewHistory.pop()!;
       this.currentView = prevState.view;
@@ -131,9 +166,9 @@ export class DashboardView extends ItemView {
       this.render();
     }
   }
-  
+
   // ========== 标签页管理方法 ==========
-  
+
   // 获取所有标签页
   private getViewTabs(): ViewTab[] {
     const settings = this.plugin.getSettings();
@@ -144,7 +179,7 @@ export class DashboardView extends ItemView {
     }
     return settings.viewTabs;
   }
-  
+
   // 获取当前活动标签
   private getActiveTab(): ViewTab | null {
     const settings = this.plugin.getSettings();
@@ -155,13 +190,13 @@ export class DashboardView extends ItemView {
     // 默认返回第一个
     return tabs[0] || null;
   }
-  
+
   // 切换到指定标签
   private switchTab(tabId: string): void {
     const settings = this.plugin.getSettings();
     settings.activeTabId = tabId;
     this.plugin.saveSettings();
-    
+
     const tab = this.getViewTabs().find(t => t.id === tabId);
     if (tab) {
       this.currentView = tab.type;
@@ -172,7 +207,7 @@ export class DashboardView extends ItemView {
     }
     this.render();
   }
-  
+
   // 添加新标签
   private async addTab(type: ViewTabType, name?: string): Promise<void> {
     const tabs = this.getViewTabs();
@@ -181,7 +216,7 @@ export class DashboardView extends ItemView {
       'board': '新看板',
       'gallery': '新画廊'
     };
-    
+
     const newTab: ViewTab = {
       id: this.generateTabId(),
       name: name || defaultNames[type],
@@ -190,46 +225,46 @@ export class DashboardView extends ItemView {
       filters: [],
       filterLogic: 'and'
     };
-    
+
     tabs.push(newTab);
     const settings = this.plugin.getSettings();
     settings.viewTabs = tabs;
     settings.activeTabId = newTab.id;
     await this.plugin.saveSettings();
-    
+
     this.currentView = type;
     this.render();
   }
-  
+
   // 删除标签
   private async removeTab(tabId: string): Promise<void> {
     const settings = this.plugin.getSettings();
     let tabs = this.getViewTabs();
-    
+
     // 不能删除最后一个
     if (tabs.length <= 1) {
       new Notice('至少保留一个视图标签');
       return;
     }
-    
+
     tabs = tabs.filter(t => t.id !== tabId);
     settings.viewTabs = tabs;
-    
+
     // 如果删除的是当前活动标签，切换到第一个
     if (settings.activeTabId === tabId) {
       settings.activeTabId = tabs[0].id;
       this.currentView = tabs[0].type;
     }
-    
+
     await this.plugin.saveSettings();
     this.render();
   }
-  
+
   // 重命名标签
   private async renameTab(tabId: string, newName: string): Promise<void> {
     const settings = this.plugin.getSettings();
     const tabs = this.getViewTabs();
-    
+
     const tab = tabs.find(t => t.id === tabId);
     if (tab) {
       tab.name = newName;
@@ -238,13 +273,13 @@ export class DashboardView extends ItemView {
       this.render();
     }
   }
-  
+
   // 复制标签
   private async duplicateTab(tabId: string): Promise<void> {
     const tabs = this.getViewTabs();
     const originalTab = tabs.find(t => t.id === tabId);
     if (!originalTab) return;
-    
+
     const newTab: ViewTab = {
       id: this.generateTabId(),
       name: originalTab.name + ' (副本)',
@@ -253,29 +288,29 @@ export class DashboardView extends ItemView {
       filters: [...(originalTab.filters || [])],
       filterLogic: originalTab.filterLogic || 'and'
     };
-    
+
     tabs.push(newTab);
     const settings = this.plugin.getSettings();
     settings.viewTabs = tabs;
     settings.activeTabId = newTab.id;
     await this.plugin.saveSettings();
-    
+
     this.currentView = newTab.type;
     this.tempFilterConditions = [...newTab.filters];
     this.tempFilterLogic = newTab.filterLogic;
     this.render();
     new Notice('视图已复制');
   }
-  
+
   // 显示标签上下文菜单（长按触发）
   private showTabContextMenu(nameEl: HTMLElement, tabId: string, event?: MouseEvent): void {
     event?.preventDefault();
-    
+
     this.closeTabContextMenu();
-    
+
     const menu = document.createElement('div');
     menu.className = 'al-tab-context-menu';
-    
+
     const copyOption = document.createElement('div');
     copyOption.className = 'al-tab-context-option';
     const copyIcon = document.createElement('span');
@@ -290,7 +325,7 @@ export class DashboardView extends ItemView {
       await this.duplicateTab(tabId);
     });
     menu.appendChild(copyOption);
-    
+
     const renameOption = document.createElement('div');
     renameOption.className = 'al-tab-context-option';
     const renameIcon = document.createElement('span');
@@ -305,7 +340,7 @@ export class DashboardView extends ItemView {
       this.editTabName(nameEl, tabId);
     });
     menu.appendChild(renameOption);
-    
+
     const deleteOption = document.createElement('div');
     deleteOption.className = 'al-tab-context-option al-tab-context-option-danger';
     const deleteIcon = document.createElement('span');
@@ -320,27 +355,27 @@ export class DashboardView extends ItemView {
       this.removeTab(tabId);
     });
     menu.appendChild(deleteOption);
-    
+
     document.body.appendChild(menu);
-    
+
     const rect = nameEl.getBoundingClientRect();
     menu.style.left = rect.left + 'px';
     menu.style.top = (rect.bottom + 4) + 'px';
     menu.classList.add('show');
-    
+
     setTimeout(() => {
       document.addEventListener('click', this.closeTabContextMenu, { once: true });
       document.addEventListener('contextmenu', this.closeTabContextMenu, { once: true });
     }, 0);
   }
-  
+
   private closeTabContextMenu = (): void => {
     const menu = document.querySelector('.al-tab-context-menu');
     if (menu) {
       menu.remove();
     }
   }
-  
+
   // 编辑标签名称（双击触发）
   private editTabName(nameEl: HTMLElement, tabId: string): void {
     const currentName = nameEl.textContent || '';
@@ -348,16 +383,16 @@ export class DashboardView extends ItemView {
     input.type = 'text';
     input.value = currentName;
     input.className = 'al-tab-name-edit';
-    
+
     // 替换为输入框
     nameEl.replaceWith(input);
-    
+
     // 自动选中全部文本
     setTimeout(() => {
       input.select();
       input.focus();
     }, 0);
-    
+
     // 确认修改（回车）
     input.addEventListener('keydown', async (e) => {
       if (e.key === 'Enter') {
@@ -374,7 +409,7 @@ export class DashboardView extends ItemView {
         input.replaceWith(nameEl);
       }
     });
-    
+
     // 点击外部取消编辑
     const blurHandler = async () => {
       const newName = input.value.trim();
@@ -385,24 +420,24 @@ export class DashboardView extends ItemView {
       }
       document.removeEventListener('click', checkClickOutside);
     };
-    
+
     const checkClickOutside = (e: MouseEvent) => {
       if (!input.contains(e.target as Node)) {
         blurHandler();
       }
     };
-    
+
     setTimeout(() => {
       document.addEventListener('click', checkClickOutside);
     }, 0);
   }
-  
+
   // 更新当前标签的筛选条件
   private async updateActiveTabFilters(conditions: FilterCondition[], logic: FilterLogic): Promise<void> {
     const settings = this.plugin.getSettings();
     const tabs = this.getViewTabs();
     const activeTab = this.getActiveTab();
-    
+
     if (activeTab) {
       const tabIndex = tabs.findIndex(t => t.id === activeTab.id);
       if (tabIndex !== -1) {
@@ -413,13 +448,13 @@ export class DashboardView extends ItemView {
       }
     }
   }
-  
+
   // 更新当前标签的看板分组方式
   private async updateActiveTabGroupBy(groupBy: 'level' | 'goalStatus' | 'parent' | null): Promise<void> {
     const settings = this.plugin.getSettings();
     const tabs = this.getViewTabs();
     const activeTab = this.getActiveTab();
-    
+
     if (activeTab) {
       const tabIndex = tabs.findIndex(t => t.id === activeTab.id);
       if (tabIndex !== -1) {
@@ -429,9 +464,9 @@ export class DashboardView extends ItemView {
       }
     }
   }
-  
+
   // 获取当前标签的筛选条件
-  private getCurrentFilters(): { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | 'parent' | null } {
+  public getCurrentFilters(): { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | 'parent' | null } {
     const activeTab = this.getActiveTab();
     if (activeTab) {
       return {
@@ -442,7 +477,7 @@ export class DashboardView extends ItemView {
     }
     return { conditions: [], logic: 'and', groupBy: 'level' };
   }
-  
+
   private getCurrentViewType(): 'dashboard' | 'board' | 'gallery' | 'list' | 'goal' {
     if (this.currentView === 'board') return 'board';
     if (this.currentView === 'gallery') return 'gallery';
@@ -450,24 +485,24 @@ export class DashboardView extends ItemView {
     if (this.currentView === 'list') return 'list';
     return 'dashboard';
   }
-  
-  private getTaskFields(): TaskField[] {
+
+  public getTaskFields(): TaskField[] {
     return (this.plugin.getSettings().viewFields[this.getCurrentViewType()] || ['title', 'priority', 'due']) as TaskField[];
   }
-  
-  private getGoalFields(): GoalField[] {
-    const viewType = this.currentView === 'gallery' ? 'gallery' 
+
+  public getGoalFields(): GoalField[] {
+    const viewType = this.currentView === 'gallery' ? 'gallery'
       : this.currentView === 'list' ? 'list'
       : this.currentView === 'board' ? 'board'
       : 'goal';
     return (this.plugin.getSettings().viewFields[viewType] || ['level', 'title', 'progress']) as GoalField[];
   }
-  
+
   // 获取当前视图启用的自定义字段配置
-  private getEnabledCustomFields(): CustomFieldConfig[] {
+  public getEnabledCustomFields(): CustomFieldConfig[] {
     const viewType = this.currentView;
     const allCustomFields = this.plugin.getSettings().customGoalFields || [];
-    
+
     // 返回在当前视图中启用的自定义字段
     return allCustomFields.filter(field => {
       const fieldKey = `custom_${field.key}`;
@@ -475,13 +510,13 @@ export class DashboardView extends ItemView {
       return goalFields.includes(fieldKey as GoalField);
     });
   }
-  
+
   // 根据字段类型格式化字段值显示
-  private formatCustomFieldValue(value: any, type: string): string {
+  public formatCustomFieldValue(value: any, type: string): string {
     if (value === null || value === undefined || value === '') {
       return '-';
     }
-    
+
     switch (type) {
       case 'color':
         return `<span style="display:inline-block;width:16px;height:16px;background:${value};border-radius:3px;margin-right:6px;vertical-align:middle;"></span>${value}`;
@@ -498,43 +533,43 @@ export class DashboardView extends ItemView {
         return String(value);
     }
   }
-  
+
   // 渲染自定义字段
-  private renderCustomFields(goal: Goal, fields: CustomFieldConfig[]): string {
+  public renderCustomFields(goal: Goal, fields: CustomFieldConfig[]): string {
     if (fields.length === 0) return '';
-    
+
     const fieldHtml = fields.map(field => {
       const value = goal[field.key];
       if (value === undefined || value === null || value === '') return '';
-      
+
       const formattedValue = this.formatCustomFieldValue(value, field.type);
       return `<div class="al-custom-field"><span class="al-custom-field-label">${field.label}:</span><span class="al-custom-field-value">${formattedValue}</span></div>`;
     }).filter(html => html !== '').join('');
-    
+
     return fieldHtml ? `<div class="al-custom-fields">${fieldHtml}</div>` : '';
   }
-  
-  private getGoalTitle(goalId: string | null): string {
+
+  public getGoalTitle(goalId: string | null): string {
     if (!goalId) return '未关联';
     const goal = this.plugin.getGoalManager().getGoal(goalId);
     return goal ? goal['A-title'] : '未知目标';
   }
-  
-  private getGoalLevel(goalId: string | null): number {
+
+  public getGoalLevel(goalId: string | null): number {
     if (!goalId) return 0;
     const goal = this.plugin.getGoalManager().getGoal(goalId);
     return goal ? goal['A-level'] : 0;
   }
-  
-  private getGoal(goalId: string): Goal | null { return this.plugin.getGoalManager().getGoal(goalId); }
-  private getTask(taskId: string): Task | null { return this.plugin.getTaskManager().getTask(taskId); }
-  private getTasksByGoal(goalId: string): Task[] { return this.plugin.getTaskManager().getAllTasks().filter(t => t['A-goal'] === goalId); }
-  
+
+  public getGoal(goalId: string): Goal | null { return this.plugin.getGoalManager().getGoal(goalId); }
+  public getTask(taskId: string): Task | null { return this.plugin.getTaskManager().getTask(taskId); }
+  public getTasksByGoal(goalId: string): Task[] { return this.plugin.getTaskManager().getAllTasks().filter(t => t['A-goal'] === goalId); }
+
   render(): void {
     const content = this.contentEl;
     content.empty();
     content.className = 'al-dashboard';
-    
+
     const allGoals = this.plugin.getGoalManager().getAllGoals();
     const allTasks = this.plugin.getTaskManager().getAllTasks();
     const todayTasks = this.plugin.getTaskManager().getTodayTasks();
@@ -542,10 +577,10 @@ export class DashboardView extends ItemView {
     const completedTasks = this.plugin.getTaskManager().getCompletedTasks();
     const weekComplete = this.calculateWeekComplete(completedTasks);
     const activeTasks = allTasks.filter(t => t['A-status'] !== 'completed' && t['A-status'] !== 'cancelled').length;
-    
+
     // 获取当前筛选和分组设置
     const currentFilters = this.getCurrentFilters();
-    
+
     // 渲染视图标签页
     const tabs = this.getViewTabs();
     const activeTab = this.getActiveTab();
@@ -565,27 +600,27 @@ export class DashboardView extends ItemView {
         </button>
       `;
     }).join('');
-    
+
     content.innerHTML = `
       <div class="al-page">
         <div class="al-header">
           <div class="al-title">Amazing Life</div>
         </div>
-        
+
         <div class="al-view-tabs">
           <button class="al-view-tab ${this.currentView === 'dashboard' ? 'active' : ''}" data-view="dashboard"><span class="al-tab-icon" data-icon="layout-grid"></span><span>仪表盘</span></button>
           ${viewTabsHtml}
           <button class="al-view-tab al-view-tab-add" id="al-add-view-tab" title="添加视图"><span class="al-tab-icon" data-icon="plus"></span></button>
         </div>
-        
-        ${['list', 'board', 'gallery'].includes(this.currentView) ? this.renderFilterBar(currentFilters) : ''}
-        
+
+        ${['list', 'board', 'gallery'].includes(this.currentView) ? this.filterHelper.renderFilterBar(currentFilters) : ''}
+
         <div class="al-body">
           ${this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, weekComplete, activeTasks)}
         </div>
       </div>
     `;
-     
+
      this.bindEvents();
      this.addStyles();
     this.setTabIcons();
@@ -593,17 +628,17 @@ export class DashboardView extends ItemView {
     this.loadTaskReferences();
     this.renderMarkdownTables();
   }
-  
+
   private renderMarkdownTables(): void {
     if (this.currentView !== 'list') return;
-    
+
     this.containerEl.querySelectorAll('.al-markdown-placeholder').forEach(el => {
       const markdown = decodeURIComponent(el.getAttribute('data-markdown') || '');
       const goalIds = (el.getAttribute('data-goal-ids') || '').split(',');
-      
+
       el.innerHTML = '';
       MarkdownRenderer.renderMarkdown(markdown, el as HTMLElement, '', this.plugin);
-      
+
       // 为表格行添加点击事件
       const rows = el.querySelectorAll('tbody tr');
       rows.forEach((row, index) => {
@@ -625,1091 +660,46 @@ export class DashboardView extends ItemView {
       });
     });
   }
-  
+
   private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], weekComplete: number, activeTasks: number): string {
     // 对目标进行筛选
-    const filteredGoals = this.applyFilterConditions(allGoals);
-    
+    const filteredGoals = this.filterHelper.applyFilterConditions(allGoals);
+
     switch (this.currentView) {
-      case 'goal-detail': return this.selectedGoalId ? this.renderGoalDetailView(this.selectedGoalId) : this.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
-      case 'task-detail': return this.selectedTaskId ? this.renderTaskDetailView(this.selectedTaskId) : this.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
-      case 'list': return this.renderListView(filteredGoals, allTasks);
-      case 'board': return this.renderBoardView(filteredGoals, allTasks);
-      case 'gallery': return this.renderGalleryView(filteredGoals, allTasks);
-      default: return this.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
+      case 'goal-detail': return this.selectedGoalId ? this.detailRenderer.renderGoalDetailView(this.selectedGoalId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
+      case 'task-detail': return this.selectedTaskId ? this.detailRenderer.renderTaskDetailView(this.selectedTaskId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
+      case 'list': return this.dashboardRenderer.renderListView(filteredGoals, allTasks);
+      case 'board': return this.boardRenderer.renderBoardView(filteredGoals, allTasks);
+      case 'gallery': return this.galleryRenderer.renderGalleryView(filteredGoals, allTasks);
+      default: return this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
     }
   }
-  
-  // 应用筛选条件
-  private applyFilterConditions(goals: Goal[]): Goal[] {
-    if (this.tempFilterConditions.length === 0) {
-      return goals;
-    }
-    
-    return goals.filter(goal => {
-      const results = this.tempFilterConditions.map(condition => {
-        return this.evaluateCondition(goal, condition);
-      });
-      
-      // 根据逻辑运算符决定最终结果
-      if (this.tempFilterLogic === 'and') {
-        return results.every(r => r);
-      } else {
-        return results.some(r => r);
-      }
-    });
-  }
-  
-  // 评估单个条件
-  private evaluateCondition(goal: Goal, condition: FilterCondition): boolean {
-    let value = goal[condition.field as keyof Goal];
 
-    // 对于虚拟年份字段，需要从对应的日期字段提取年份
-    if (condition.field.endsWith('-year')) {
-      const dateField = condition.field.replace('-year', '') as keyof Goal;
-      const dateValue = goal[dateField];
-      if (typeof dateValue === 'string' && dateValue) {
-        value = new Date(dateValue).getFullYear();
-      } else {
-        value = null;
-      }
-    }
-
-    switch (condition.operator) {
-      case 'equals':
-        return value === condition.value;
-      case 'not_equals':
-        return value !== condition.value;
-      case 'contains':
-        if (typeof value === 'string') {
-          return value.toLowerCase().includes(String(condition.value).toLowerCase());
-        }
-        return false;
-      case 'not_contains':
-        if (typeof value === 'string') {
-          return !value.toLowerCase().includes(String(condition.value).toLowerCase());
-        }
-        return true;
-      case 'starts_with':
-        if (typeof value === 'string') {
-          return value.toLowerCase().startsWith(String(condition.value).toLowerCase());
-        }
-        return false;
-      case 'ends_with':
-        if (typeof value === 'string') {
-          return value.toLowerCase().endsWith(String(condition.value).toLowerCase());
-        }
-        return false;
-      case 'greater_than':
-        return typeof value === 'number' && value > Number(condition.value);
-      case 'less_than':
-        return typeof value === 'number' && value < Number(condition.value);
-      case 'greater_or_equal':
-        return typeof value === 'number' && value >= Number(condition.value);
-      case 'less_or_equal':
-        return typeof value === 'number' && value <= Number(condition.value);
-      case 'is_empty':
-        return value === null || value === undefined || value === '';
-      case 'is_not_empty':
-        return value !== null && value !== undefined && value !== '';
-      case 'is_null':
-        return value === null || value === undefined;
-      case 'is_not_null':
-        return value !== null && value !== undefined;
-      case 'year_equals':
-        return typeof value === 'number' && value === Number(condition.value);
-      case 'year_not_equals':
-        return typeof value === 'number' && value !== Number(condition.value);
-      case 'year_before':
-        return typeof value === 'number' && value < Number(condition.value);
-      case 'year_after':
-        return typeof value === 'number' && value > Number(condition.value);
-      case 'year_between':
-        // condition.value 格式为 "2020,2025"，表示 2020 到 2025 之间
-        if (typeof value === 'number' && typeof condition.value === 'string') {
-          const [start, end] = condition.value.split(',').map(Number);
-          return value >= start && value <= end;
-        }
-        return false;
-      default:
-        return true;
-    }
-  }
-  
-  // 获取字段的操作符选项
-  private getOperatorsForFieldType(type: string): FilterOperator[] {
-    switch (type) {
-      case 'string':
-        return ['equals', 'not_equals', 'contains', 'not_contains', 'starts_with', 'ends_with', 'is_empty', 'is_not_empty'];
-      case 'number':
-        return ['equals', 'not_equals', 'greater_than', 'less_than', 'greater_or_equal', 'less_or_equal', 'is_empty', 'is_not_empty'];
-      case 'select':
-        return ['equals', 'not_equals', 'is_empty', 'is_not_empty'];
-      case 'date':
-        return ['equals', 'not_equals', 'greater_than', 'less_than', 'greater_or_equal', 'less_or_equal', 'is_empty', 'is_not_empty'];
-      case 'array':
-        return ['contains', 'not_contains', 'is_empty', 'is_not_empty'];
-      case 'year':
-        return ['year_equals', 'year_not_equals', 'year_before', 'year_after', 'year_between', 'is_empty', 'is_not_empty'];
-      default:
-        return ['equals', 'not_equals'];
-    }
-  }
-  
-  // 获取字段类型
-  private getFieldType(fieldName: string): string {
-    const fieldDef = GOAL_FILTER_FIELDS.find(f => f.field === fieldName);
-    return fieldDef?.type || 'string';
-  }
-  
-  // 渲染筛选栏
-  private renderFilterBar(currentFilters: { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | 'parent' | null }): string {
-    const hasConditions = this.tempFilterConditions.length > 0;
-    
-    const groupByOptions = [
-      { value: '', label: '不分组' },
-      { value: 'level', label: '按层级' },
-      { value: 'goalStatus', label: '按状态' },
-      { value: 'parent', label: '按父目标' }
-    ];
-    
-    const showGroupBy = ['board', 'gallery'].includes(this.currentView);
-    
-    return `
-      <div class="al-filter-bar">
-        <button id="al-toggle-filter-builder" class="al-filter-toggle ${this.tempShowFilterBuilder ? 'active' : ''}">
-          ${this.tempShowFilterBuilder ? '收起' : '添加筛选条件'}
-        </button>
-        
-        ${showGroupBy ? `
-          <div class="al-board-group-inline">
-            <span class="al-board-group-label">分组：</span>
-            <select id="al-board-group-by" class="al-filter-select">
-              ${groupByOptions.map(opt => `<option value="${opt.value}" ${currentFilters.groupBy === opt.value || (opt.value === '' && !currentFilters.groupBy) ? 'selected' : ''}>${opt.label}</option>`).join('')}
-            </select>
-          </div>
-        ` : ''}
-        
-        ${hasConditions ? `
-          <button id="al-filter-save" class="al-filter-btn">保存</button>
-          <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">清除</button>
-        ` : ''}
-        
-        ${hasConditions ? `<span class="al-filter-count">${this.tempFilterConditions.length} 个条件 (${this.tempFilterLogic === 'and' ? '且' : '或'})</span>` : ''}
-        
-        <div class="al-filter-spacer"></div>
-        <button class="al-filter-settings-btn" id="al-open-field-settings" title="字段设置">
-          <span class="al-tab-icon" data-icon="settings"></span>
-          <span>字段</span>
-        </button>
-      </div>
-      ${this.tempShowFilterBuilder ? this.renderFilterBuilder() : ''}
-    `;
-  }
-  
-  // 渲染筛选构建器
-  private renderFilterBuilder(): string {
-    const fields = GOAL_FILTER_FIELDS;
-    
-    return `
-      <div class="al-filter-builder">
-        <div class="al-filter-logic-row">
-          <span class="al-filter-logic-label">条件组合：</span>
-          <button class="al-filter-logic-btn ${this.tempFilterLogic === 'and' ? 'active' : ''}" data-logic="and">且 (AND)</button>
-          <button class="al-filter-logic-btn ${this.tempFilterLogic === 'or' ? 'active' : ''}" data-logic="or">或 (OR)</button>
-        </div>
-        
-        <div class="al-filter-conditions">
-          ${this.tempFilterConditions.map((condition, index) => this.renderFilterCondition(condition, index, fields)).join('')}
-        </div>
-        
-        <button id="al-add-filter-condition" class="al-filter-add-btn">+ 添加条件</button>
-      </div>
-    `;
-  }
-  
-  // 渲染单个筛选条件
-  private renderFilterCondition(condition: FilterCondition, index: number, fields: typeof GOAL_FILTER_FIELDS): string {
-    const selectedField = fields.find(f => f.field === condition.field);
-    const fieldType = selectedField?.type || 'string';
-    const availableOperators = this.getOperatorsForFieldType(fieldType);
-    const needsValue = !['is_empty', 'is_not_empty', 'is_null', 'is_not_null'].includes(condition.operator);
-    
-    return `
-      <div class="al-filter-condition" data-condition-id="${condition.id}">
-        <select class="al-filter-field-select" data-condition-index="${index}">
-          ${fields.map(f => `<option value="${f.field}" ${f.field === condition.field ? 'selected' : ''}>${f.label}</option>`).join('')}
-        </select>
-        
-        <select class="al-filter-operator-select" data-condition-index="${index}">
-          ${availableOperators.map(op => `<option value="${op}" ${op === condition.operator ? 'selected' : ''}>${FILTER_OPERATOR_LABELS[op]}</option>`).join('')}
-        </select>
-        
-        ${needsValue ? this.renderConditionValue(condition, selectedField) : '<span class="al-filter-no-value">-</span>'}
-        
-        <button class="al-filter-remove-btn" data-condition-id="${condition.id}">✕</button>
-      </div>
-    `;
-  }
-  
-  // 渲染条件值输入
-  private renderConditionValue(condition: FilterCondition, fieldDef: typeof GOAL_FILTER_FIELDS[0] | undefined): string {
-    if (!fieldDef) {
-      return `<input type="text" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" placeholder="输入值...">`;
-    }
-    
-    if (fieldDef.type === 'select' && fieldDef.options) {
-      return `
-        <select class="al-filter-value-select" data-condition-id="${condition.id}">
-          <option value="">请选择...</option>
-          ${fieldDef.options.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('')}
-        </select>
-      `;
-    }
-    
-    if (fieldDef.type === 'number') {
-      return `<input type="number" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" min="${fieldDef.min || 0}" max="${fieldDef.max || 100}">`;
-    }
-    
-    if (fieldDef.type === 'date') {
-      return `<input type="date" class="al-filter-value-input al-filter-date-input" data-condition-id="${condition.id}" value="${condition.value || ''}">`;
-    }
-
-    if (fieldDef.type === 'year') {
-      const currentYear = new Date().getFullYear();
-      const years: number[] = [];
-      for (let y = currentYear - 10; y <= currentYear + 10; y++) {
-        years.push(y);
-      }
-
-      // 年份区间需要两个年份选择器
-      if (condition.operator === 'year_between') {
-        const [startYear, endYear] = condition.value ? String(condition.value).split(',').map(Number) : [null, null];
-        return `
-          <div class="al-filter-year-range">
-            <select class="al-filter-value-select al-filter-year-select" data-condition-id="${condition.id}" data-year-part="start">
-              <option value="">开始年份</option>
-              ${years.map(y => `<option value="${y}" ${startYear === y ? 'selected' : ''}>${y}年</option>`).join('')}
-            </select>
-            <span class="al-filter-year-range-sep">至</span>
-            <select class="al-filter-value-select al-filter-year-select" data-condition-id="${condition.id}" data-year-part="end">
-              <option value="">结束年份</option>
-              ${years.map(y => `<option value="${y}" ${endYear === y ? 'selected' : ''}>${y}年</option>`).join('')}
-            </select>
-          </div>
-        `;
-      }
-
-      return `
-        <select class="al-filter-value-select al-filter-year-select" data-condition-id="${condition.id}">
-          <option value="">请选择年份...</option>
-          ${years.map(y => `<option value="${y}" ${condition.value == y ? 'selected' : ''}>${y}年</option>`).join('')}
-        </select>
-      `;
-    }
-
-    return `<input type="text" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" placeholder="输入值...">`;
-  }
-  
-  // 删除筛选条件
-  private removeFilterCondition(conditionId: string): void {
-    this.tempFilterConditions = this.tempFilterConditions.filter(c => c.id !== conditionId);
-    this.render();
-  }
-  
-  // 更新筛选条件
-  private updateFilterCondition(conditionId: string, updates: Partial<FilterCondition>): void {
-    this.tempFilterConditions = this.tempFilterConditions.map(c => {
-      if (c.id === conditionId) {
-        const updated = { ...c, ...updates };
-
-        // 如果字段改变，重置操作符为新字段的第一个有效操作符
-        if (updates.field && updates.field !== c.field) {
-          const fieldDef = GOAL_FILTER_FIELDS.find(f => f.field === updates.field);
-          const fieldType = fieldDef?.type || 'string';
-          const availableOperators = this.getOperatorsForFieldType(fieldType);
-          updated.operator = availableOperators[0] || 'equals';
-          updated.value = null; // 清空值
-        }
-
-        return updated;
-      }
-      return c;
-    });
-  }
-  
-  private renderGoalDetailView(goalId: string): string {
-    const goal = this.getGoal(goalId);
-    if (!goal) return `<div class="al-detail-view"><div class="al-empty">${this.renderEmpty('❌', '目标不存在', '')}</div></div>`;
-    
-    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const levelColors: Record<number, string> = { 1: '#8B5CF6', 2: '#3B82F6', 3: '#6366F1', 4: '#22C55E' };
-    const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
-    const goalTasks = this.getTasksByGoal(goalId);
-    const pendingTasks = goalTasks.filter(t => t['A-status'] === 'pending');
-    const inProgressTasks = goalTasks.filter(t => t['A-status'] === 'in-progress');
-    const completedTasks = goalTasks.filter(t => t['A-status'] === 'completed');
-    const priorityNames = ['最高', '高', '中', '低', '最低'];
-    const priorityColors = ['var(--text-red)', 'var(--text-orange)', 'var(--text-yellow)', 'var(--text-green)', 'var(--text-muted)'];
-    
-    const parentGoal = goal['A-parent'] ? this.getGoal(goal['A-parent']) : null;
-    const coverImageUrl = this.getCoverImageUrl(goal['A-cover']);
-    
-    // 获取子目标
-    const subGoals = this.plugin.getGoalManager().getAllGoals().filter(g => g['A-parent'] === goal['A-id']);
-    
-    // 获取自定义字段配置
-    // 获取当前目标已有的自定义字段值
-    const customFields = (this.plugin.getSettings().customGoalFields || []).filter(field => {
-      return goal[field.key] !== undefined && goal[field.key] !== null && goal[field.key] !== '';
-    });
-    
-    return `
-      <div class="al-detail-view">
-        <div class="al-detail-header">
-          <div class="al-detail-icon" id="al-back-btn" title="返回">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-          </div>
-          <div class="al-detail-title">
-            <h2>${goal['A-title']}</h2>
-          </div>
-          <div class="al-detail-icon" id="al-goal-menu-btn" title="更多操作">
-            <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
-          </div>
-        </div>
-        ${coverImageUrl ? `<div class="al-detail-cover"><img src="${coverImageUrl}" alt="封面图"></div>` : ''}
-        <div class="al-detail-content">
-          <div class="al-detail-main">
-            ${!coverImageUrl ? `<div class="al-detail-add-cover">
-              <span>🖼️</span>
-              <span class="al-field-label">添加封面</span>
-              <span>点击添加封面图片URL</span>
-            </div>` : ''}
-            <div class="al-detail-fields">
-              <div class="al-field-row" data-field="level" data-value="${goal['A-level']}">
-                <span class="al-field-icon">🎯</span>
-                <span class="al-field-label">目标层级</span>
-                <span class="al-field-value al-field-editable" data-field-type="select">${levelNames[goal['A-level']]}</span>
-              </div>
-              <div class="al-field-row al-parent-field-row" data-field="parent" data-value="${goal['A-parent'] || ''}">
-                <span class="al-field-icon">🔗</span>
-                <span class="al-field-label">上级目标</span>
-                <span class="al-field-value al-parent-value ${parentGoal ? 'has-parent' : ''}" data-goal-id="${parentGoal ? parentGoal['A-id'] : ''}">${parentGoal ? parentGoal['A-title'] : '点击选择'}</span>
-              </div>
-            </div>
-            <div class="al-detail-description-block" data-field="description" data-value="${goal['A-description'] || ''}">
-              <div class="al-detail-description-header">
-                <span class="al-detail-description-icon">📝</span>
-                <span class="al-detail-description-title">目标描述</span>
-              </div>
-              <div class="al-detail-description-content al-field-editable" data-field-type="textarea">${goal['A-description'] || '添加描述...'}</div>
-            </div>
-            <div class="al-detail-custom-fields-block">
-              <div class="al-detail-custom-fields-header" id="al-custom-fields-toggle">
-                <span class="al-detail-custom-fields-icon">🔧</span>
-                <span class="al-detail-custom-fields-title">自定义字段</span>
-                <span class="al-detail-custom-fields-count" id="al-custom-fields-count">${customFields.length > 0 ? customFields.length : ''}</span>
-              </div>
-              <div class="al-detail-custom-fields-content" id="al-custom-fields-content">
-                <div class="al-custom-fields-list">
-                  ${customFields.length > 0 ? customFields.map(field => {
-                    const value = goal[field.key];
-                    const formattedValue = this.formatCustomFieldValue(value, field.type);
-                    const hasValue = value !== undefined && value !== null && value !== '';
-                    return `<div class="al-custom-field-item" data-field-key="${field.key}" data-field-type="${field.type}">
-                      <span class="al-custom-field-label">${field.label}</span>
-                      <span class="al-custom-field-value al-field-editable ${hasValue ? '' : 'empty'}">${hasValue ? formattedValue : '点击设置'}</span>
-                    </div>`;
-                  }).join('') : `<div class="al-custom-fields-empty">暂无自定义字段</div>`}
-                </div>
-                <div class="al-add-goal-link" id="al-add-custom-field-btn">+ 添加字段</div>
-              </div>
-            </div>
-            <div class="al-progress-management-block">
-              <div class="al-progress-management-header" id="al-progress-management-toggle">
-                <span class="al-progress-management-icon">📊</span>
-                <span class="al-progress-management-title">进度管理</span>
-                <span class="al-progress-management-toggle-icon" id="al-progress-toggle-icon">▼</span>
-              </div>
-              <div class="al-progress-management-content" id="al-progress-management-content">
-                <div class="al-progress-management-fields">
-                  <div class="al-progress-field-row" data-field="status" data-value="${goal['A-status']}">
-                    <span class="al-progress-field-label">目标状态</span>
-                    <span class="al-progress-field-value al-field-editable" data-field-type="select">${statusNames[goal['A-status']]}</span>
-                  </div>
-                  <div class="al-progress-field-row" data-field="start" data-value="${goal['A-start']}">
-                    <span class="al-progress-field-label">开始时间</span>
-                    <span class="al-progress-field-value al-field-editable" data-field-type="date">${goal['A-start'] || '-'}</span>
-                  </div>
-                  <div class="al-progress-field-row" data-field="due" data-value="${goal['A-due'] || ''}">
-                    <span class="al-progress-field-label">截止时间</span>
-                    <span class="al-progress-field-value al-field-editable" data-field-type="date">${goal['A-due'] || '-'}</span>
-                  </div>
-                  <div class="al-progress-field-row" data-field="progress" data-value="${goal['A-progress']}">
-                    <span class="al-progress-field-label">完成进度</span>
-                    <div class="al-progress-field-value">
-                      <div class="al-progress-slider-container">
-                        <input type="range" class="al-progress-slider" min="0" max="100" value="${goal['A-progress']}" data-field="progress">
-                        <span class="al-progress-value">${goal['A-progress']}%</span>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div class="al-subgoals-panel" id="al-subgoals-panel">
-                  <div class="al-subgoals-panel-header" id="al-subgoals-toggle">
-                    <span class="al-subgoals-toggle-icon" id="al-subgoals-toggle-icon">▶</span>
-                    <span class="al-subgoals-panel-title">子目标</span>
-                    <span class="al-subgoals-count">${subGoals.length}</span>
-                  </div>
-                  <div class="al-subgoals-panel-content" id="al-subgoals-content" style="display:none;">
-                    ${subGoals.length > 0 ? `
-                      <div class="al-subgoals-list">
-                        ${subGoals.map(sub => `
-                          <div class="al-subgoal-item" data-goal-id="${sub['A-id']}">
-                            <span class="al-subgoal-level" style="background:${levelColors[sub['A-level']]}">${levelNames[sub['A-level']]}</span>
-                            <span class="al-subgoal-title">${sub['A-title']}</span>
-                            <div class="al-subgoal-progress">
-                              <div class="al-progress-bar-small"><div class="al-progress-fill-small" style="width:${sub['A-progress']}%"></div></div>
-                              <span>${sub['A-progress']}%</span>
-                            </div>
-                          </div>
-                        `).join('')}
-                      </div>
-                    ` : `<div class="al-subgoals-empty">暂无子目标</div>`}
-                    <div class="al-add-goal-link" id="al-add-subgoal-btn">+ 添加子目标</div>
-                  </div>
-                </div>
-                <div class="al-tasks-panel" id="al-tasks-panel">
-                  <div class="al-tasks-panel-header" id="al-tasks-toggle">
-                    <span class="al-tasks-toggle-icon" id="al-tasks-toggle-icon">▶</span>
-                    <span class="al-tasks-panel-title">关联任务</span>
-                    <span class="al-tasks-count">${goalTasks.length}</span>
-                    <span class="al-tasks-summary">${pendingTasks.length}待办 ${inProgressTasks.length}进行中 ${completedTasks.length}已完成</span>
-                  </div>
-                  <div class="al-tasks-panel-content" id="al-tasks-content" style="display:none;">
-                    ${goalTasks.length === 0 ? `<div class="al-tasks-empty">暂无任务</div>` : `<div class="al-tasks-list">${goalTasks.map(task => `
-                      <div class="al-task-item" data-task-id="${task['A-id']}">
-                        <input type="checkbox" class="task-list-item-checkbox" ${task['A-status'] === 'completed' ? 'checked' : ''} data-task-id="${task['A-id']}">
-                        <div class="al-task-title ${task['A-status'] === 'completed' ? 'done' : ''}">${task['A-title']}</div>
-                        <div class="al-task-priority" style="color: ${priorityColors[task['A-priority'] - 1]}">${['🔴', '🟠', '🟡', '🟢', '⚪'][task['A-priority'] - 1]}</div>
-                      </div>
-                    `).join('')}</div>`}
-                    <div class="al-add-goal-link" id="al-add-task-to-goal">+ 添加任务</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div class="al-detail-references-block" id="al-references-container">
-              <div class="al-detail-references-header">
-                <span class="al-detail-references-icon">📎</span>
-                <span class="al-detail-references-title">引用记录</span>
-                <span class="al-detail-references-count" id="al-references-count">0</span>
-              </div>
-              <div class="al-detail-references-content" id="al-references-content">
-                <div class="al-detail-references-loading">加载中...</div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-  
-  private renderTaskDetailView(taskId: string): string {
-    const task = this.getTask(taskId);
-    if (!task) return `<div class="al-detail-view"><div class="al-empty">${this.renderEmpty('❌', '任务不存在', '')}</div></div>`;
-    
-    const goal = task['A-goal'] ? this.getGoal(task['A-goal']) : null;
-    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
-    const priorityNames = ['最高', '高', '中', '低', '最低'];
-    const priorityColors = ['var(--text-red)', 'var(--text-orange)', 'var(--text-yellow)', 'var(--text-green)', 'var(--text-muted)'];
-    const statusNames: Record<string, string> = { 'pending': '待办', 'in-progress': '进行中', 'completed': '已完成', 'cancelled': '已取消' };
-    
-    return `
-      <div class="al-detail-view">
-        <div class="al-detail-header">
-          <div class="al-detail-icon" id="al-back-btn" title="返回">
-            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"></polyline></svg>
-          </div>
-          <div class="al-detail-title">
-            <span style="color: ${priorityColors[task['A-priority'] - 1]}; font-size: 20px;">${['🔴', '🟠', '🟡', '🟢', '⚪'][task['A-priority'] - 1]}</span>
-            <h2>${task['A-title']}</h2>
-          </div>
-          <div class="al-detail-status status-${task['A-status']}">${statusNames[task['A-status']]}</div>
-        </div>
-        <div class="al-detail-content">
-          <div class="al-detail-main">
-            <div class="al-detail-section">
-              <h3>📊 任务信息</h3>
-              <div class="al-detail-info-grid">
-                <div class="al-detail-info-item"><span class="al-detail-info-label">优先级</span><span class="al-detail-info-value" style="color: ${priorityColors[task['A-priority'] - 1]}">${priorityNames[task['A-priority'] - 1]}</span></div>
-                <div class="al-detail-info-item"><span class="al-detail-info-label">状态</span><span class="al-detail-info-value"><span class="al-status-badge status-${task['A-status']}">${statusNames[task['A-status']]}</span></span></div>
-                <div class="al-detail-info-item"><span class="al-detail-info-label">创建时间</span><span class="al-detail-info-value">${task['A-created']}</span></div>
-                ${task['A-due'] ? `<div class="al-detail-info-item"><span class="al-detail-info-label">截止日期</span><span class="al-detail-info-value">${task['A-due']}</span></div>` : ''}
-                ${task['A-completed'] ? `<div class="al-detail-info-item"><span class="al-detail-info-label">完成时间</span><span class="al-detail-info-value">${task['A-completed']}</span></div>` : ''}
-              </div>
-            </div>
-            
-            <div class="al-detail-section">
-              <h3>🎯 关联目标</h3>
-              ${goal ? `
-              <div class="al-task-goal-card" data-goal-id="${goal['A-id']}">
-                <div class="al-task-goal-header">
-                  <span class="al-goal-level" data-level="${goal['A-level']}" style="background: ${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span>
-                  <span class="al-detail-info-label">${goal['A-title']}</span>
-                </div>
-                <div class="al-task-goal-progress">
-                  <div class="al-progress-bar"><div class="al-progress-fill" style="width: ${goal['A-progress']}%"></div></div>
-                  <span>${goal['A-progress']}%</span>
-                </div>
-              </div>
-              ` : this.renderEmpty('🎯', '未关联目标', '')}
-            </div>
-            
-            <div class="al-detail-section">
-              <h3>⚡ 快捷操作</h3>
-              <div class="al-task-actions">
-                ${task['A-status'] === 'completed'
-                  ? `<button class="al-action-btn" id="al-uncomplete-task"><span>↩️</span><span>标记为未完成</span></button>`
-                  : `<button class="al-action-btn al-action-btn-success" id="al-complete-task"><span>✓</span><span>完成任务</span></button>`
-                }
-              </div>
-            </div>
-
-            <div class="al-detail-section">
-              <h3>📜 引用记录</h3>
-              <div class="al-detail-references-block" id="al-task-references-block">
-                <div class="al-detail-references-header">
-                  <span class="al-detail-references-icon">📄</span>
-                  <span class="al-detail-references-title">日记引用</span>
-                  <span class="al-detail-references-count" id="al-task-references-count">0</span>
-                </div>
-                <div class="al-detail-references-loading" id="al-task-references-loading">加载中...</div>
-                <div class="al-detail-references-content" id="al-task-references-container"></div>
-              </div>
-            </div>
-          </div>
-          <div class="al-detail-sidebar">
-            <div class="al-detail-actions">
-              <button class="mod-cta" id="al-edit-task-btn"><span>✏️</span><span>编辑任务</span></button>
-              <button class="al-action-btn-danger" id="al-delete-task-btn"><span>🗑️</span><span>删除任务</span></button>
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
-  
-  private renderDashboardView(todayTasks: Task[], overdueTasks: Task[], weekComplete: number, activeTasks: number): string {
-    const calendarHtml = this.renderCalendar();
-    return `
-      <div class="al-main-full">
-        <div class="al-panel al-panel-calendar">
-          <div class="al-panel-header"><span>📅</span><span>日历</span></div>
-          <div class="al-panel-body al-calendar-body">${calendarHtml}</div>
-        </div>
-        <div class="al-stats">
-          <div class="al-stat"><span class="al-stat-num">${todayTasks.length}</span><span class="al-stat-label">今日待办</span></div>
-          <div class="al-stat"><span class="al-stat-num">${weekComplete}</span><span class="al-stat-label">本周完成</span></div>
-          <div class="al-stat ${overdueTasks.length > 0 ? 'al-stat-warning' : ''}"><span class="al-stat-num">${overdueTasks.length}</span><span class="al-stat-label">逾期任务</span></div>
-          <div class="al-stat"><span class="al-stat-num">${activeTasks}</span><span class="al-stat-label">进行中</span></div>
-        </div>
-        <div class="al-panel">
-          <div class="al-panel-header"><span>📋</span><span>今日任务</span><span class="al-panel-count">${todayTasks.length}</span></div>
-          <div class="al-panel-body">${todayTasks.length === 0 ? this.renderEmpty('📋', '暂无任务', '点击右上角按钮添加任务') : this.renderTasks(todayTasks)}</div>
-        </div>
-        ${overdueTasks.length > 0 ? `<div class="al-panel al-panel-overdue"><div class="al-panel-header"><span>⚠️</span><span>逾期任务</span><span class="al-panel-count al-count-overdue">${overdueTasks.length}</span></div><div class="al-panel-body">${this.renderTasks(overdueTasks)}</div></div>` : ''}
-      </div>
-    `;
-  }
-  
-  private renderListView(allGoals: Goal[], allTasks: Task[]): string {
-    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
-    const fields = this.getGoalFields();
-    const customFields = this.getEnabledCustomFields();
-    const showLevel = fields.includes('level');
-    const showStatus = fields.includes('status');
-    const showProgress = fields.includes('progress');
-    const showDue = fields.includes('due');
-    const showTasksCount = fields.includes('tasksCount');
-    
-    if (allGoals.length === 0) return `<div class="al-table-view"><div class="al-table-empty">${this.renderEmpty('🎯', '暂无目标', '')}</div><div class="al-add-goal-link" id="al-list-add-goal">+ 添加目标</div></div>`;
-    
-    // 构建 Markdown 表格头
-    const headerCells: string[] = ['目标名称'];
-    if (showLevel) headerCells.push('层级');
-    if (showStatus) headerCells.push('状态');
-    if (showProgress) headerCells.push('进度');
-    if (showDue) headerCells.push('截止日期');
-    if (showTasksCount) headerCells.push('任务');
-    customFields.forEach(field => headerCells.push(field.label));
-    
-    const headerRow = '| ' + headerCells.join(' | ') + ' |';
-    const separatorRow = '| ' + headerCells.map(() => '---').join(' | ') + ' |';
-    
-    // 构建数据行
-    const rows = allGoals.map(goal => {
-      const tasks = allTasks.filter(t => t['A-goal'] === goal['A-id']);
-      const completedCount = tasks.filter(t => t['A-status'] === 'completed').length;
-      
-      const cells: string[] = [goal['A-title']];
-      if (showLevel) cells.push(levelNames[goal['A-level']]);
-      if (showStatus) cells.push(statusNames[goal['A-status']]);
-      if (showProgress) cells.push(`${goal['A-progress']}%`);
-      if (showDue) cells.push(goal['A-due'] || '-');
-      if (showTasksCount) cells.push(`${tasks.length} (${completedCount})`);
-      
-      // 自定义字段值
-      customFields.forEach(field => {
-        const value = goal[field.key];
-        cells.push(this.formatCustomFieldValue(value, field.type));
-      });
-      
-      return '| ' + cells.join(' | ') + ' |';
-    });
-    
-    const tableMarkdown = headerRow + '\n' + separatorRow + '\n' + rows.join('\n');
-    const goalIds = allGoals.map(g => g['A-id']).join(',');
-    
-    return `<div class="al-table-view"><div class="al-markdown-table-wrapper"><div class="al-markdown-placeholder" data-markdown="${encodeURIComponent(tableMarkdown)}" data-goal-ids="${goalIds}"></div></div><div class="al-add-goal-link" id="al-list-add-goal">+ 添加目标</div></div>`;
-  }
-  
-  private renderBoardView(allGoals: Goal[], allTasks: Task[]): string {
-    const currentFilters = this.getCurrentFilters();
-    const boardGroupBy = currentFilters.groupBy;
-    
-    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const levelColors: Record<number, string> = { 1: '#8B5CF6', 2: '#3B82F6', 3: '#6366F1', 4: '#22C55E' };
-    const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
-    const statusColors: Record<string, string> = { 'active': 'var(--text-blue)', 'completed': 'var(--text-green)', 'abandoned': 'var(--text-muted)' };
-    
-    let columnsHtml = '';
-    
-    if (boardGroupBy === 'level') {
-      // 按层级分组
-      columnsHtml = [1, 2, 3, 4].map(level => {
-        const goals = allGoals.filter(g => g['A-level'] === level);
-        return `<div class="al-board-column" data-column-type="level" data-column-value="${level}">
-          <div class="al-board-column-header">
-            <div class="al-board-column-title">
-              <span class="al-level-badge" style="background:${levelColors[level]};color:#fff;font-size:14px;font-weight:700;padding:4px 12px;border-radius:6px;display:inline-block;min-width:40px;text-align:center">${levelNames[level]}</span>
-            </div>
-            <span class="al-list-count">${goals.length}</span>
-          </div>
-          <div class="al-board-column-body">
-            ${goals.length === 0 ? this.renderEmpty('🎯', '暂无目标', '') : this.renderGoalsForBoard(goals, allTasks)}
-          </div>
-          <div class="al-board-column-footer">
-            <div class="al-add-goal-btn" data-prefill-level="${level}">+ 添加目标</div>
-          </div>
-        </div>`;
-      }).join('');
-    } else if (boardGroupBy === 'goalStatus') {
-      // 按目标状态分组
-      const statusOrder = ['active', 'completed', 'abandoned'];
-      columnsHtml = statusOrder.map(status => {
-        const goals = allGoals.filter(g => g['A-status'] === status);
-        return `<div class="al-board-column" data-column-type="goalStatus" data-column-value="${status}">
-          <div class="al-board-column-header">
-            <div class="al-board-column-title">
-              <span class="al-status-dot" style="background:${statusColors[status]}"></span>
-              <span>${statusNames[status]}</span>
-            </div>
-            <span class="al-list-count">${goals.length}</span>
-          </div>
-          <div class="al-board-column-body">
-            ${goals.length === 0 ? this.renderEmpty('🎯', '暂无目标', '') : this.renderGoalsForBoard(goals, allTasks)}
-          </div>
-          <div class="al-board-column-footer">
-            <div class="al-add-goal-btn" data-prefill-status="${status}">+ 添加目标</div>
-          </div>
-        </div>`;
-      }).join('');
-    }
-    
-    return `
-      <div class="al-board-view">${columnsHtml}</div>
-    `;
-  }
-  
-  private renderGoalsForBoard(goals: Goal[], allTasks: Task[]): string {
-    const fields = this.getGoalFields();
-    const showCover = fields.includes('cover');
-    const showProgress = fields.includes('progress');
-    const showTasksCount = fields.includes('tasksCount');
-    
-    return goals.map(goal => {
-      const tasks = allTasks.filter(t => t['A-goal'] === goal['A-id']);
-      const completedCount = tasks.filter(t => t['A-status'] === 'completed').length;
-      const coverUrl = this.getCoverImageUrl(goal['A-cover']);
-      const customFields = this.getEnabledCustomFields();
-      let cardContent = `<div class="al-goal-card" data-goal-id="${goal['A-id']}">`;
-      
-      if (showCover && coverUrl) {
-        cardContent += `<div class="al-goal-card-cover"><img src="${coverUrl}" alt="封面图"></div>`;
-      }
-      
-      cardContent += `<div class="al-goal-card-title">${goal['A-title']}</div>`;
-      
-      if (showProgress) {
-        cardContent += `
-          <div class="al-goal-card-progress">
-            <div class="al-progress-bar"><div class="al-progress-fill" style="width:${goal['A-progress']}%"></div></div>
-            <span>${goal['A-progress']}%</span>
-          </div>
-        `;
-      }
-      
-      if (showTasksCount) {
-        cardContent += `
-          <div class="al-goal-card-meta">
-            <span>📋 ${tasks.length} 个任务</span>
-            <span>✓ ${completedCount} 已完成</span>
-          </div>
-        `;
-      }
-      
-      // 渲染自定义字段
-      cardContent += this.renderCustomFields(goal, customFields);
-      
-      cardContent += '</div>';
-      return cardContent;
-    }).join('');
-  }
-  
-  private renderGalleryView(allGoals: Goal[], allTasks: Task[]): string {
-    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
-    const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
-    const statusColors: Record<string, string> = { 'active': 'var(--interactive-accent)', 'completed': 'var(--text-green)', 'abandoned': 'var(--text-muted)' };
-    
-    if (allGoals.length === 0) return `<div class="al-gallery-view"><div class="al-gallery-section"><div class="al-gallery-section-title">目标 (0)</div><div class="al-gallery-grid"><div class="al-gallery-add-card" id="al-gallery-add-goal"><span class="al-gallery-add-icon">+</span><span>添加目标</span></div></div></div></div>`;
-    
-    const fields = this.getGoalFields();
-    const currentFilters = this.getCurrentFilters();
-    const groupBy = currentFilters.groupBy;
-    
-    // 渲染单个卡片
-    const renderCard = (goal: Goal): string => {
-      const gt = allTasks.filter(t => t['A-goal'] === goal['A-id']);
-      const coverUrl = this.getCoverImageUrl(goal['A-cover']);
-      const customFields = this.getEnabledCustomFields();
-      let cardContent = `<div class="al-gallery-card al-gallery-goal" data-goal-id="${goal['A-id']}">`;
-      
-      if (fields.includes('cover') && coverUrl) {
-        cardContent += `<div class="al-gallery-card-cover"><img src="${coverUrl}" alt="封面图"></div>`;
-      }
-      
-      cardContent += `<div class="al-gallery-card-header"><span class="al-goal-level" data-level="${goal['A-level']}" style="background:${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span></div>`;
-      
-      if (fields.includes('title')) cardContent += `<div class="al-gallery-card-title">${goal['A-title']}</div>`;
-      if (fields.includes('progress')) cardContent += `<div class="al-gallery-card-progress"><div class="al-progress-bar"><div class="al-progress-fill" style="width:${goal['A-progress']}%"></div></div><span>${goal['A-progress']}%</span></div>`;
-      if (fields.includes('due') && goal['A-due']) cardContent += `<div class="al-gallery-card-meta">📅 ${goal['A-due']}</div>`;
-      if (fields.includes('tasksCount')) cardContent += `<div class="al-gallery-card-tasks"><span>📋 ${gt.length} 个任务</span></div>`;
-      if (fields.includes('completedTasksCount')) {
-        const completed = gt.filter(t => t['A-status'] === 'completed').length;
-        cardContent += `<div class="al-gallery-card-tasks"><span>✓ 已完成 ${completed} 个</span></div>`;
-      }
-      
-      // 渲染自定义字段
-      cardContent += this.renderCustomFields(goal, customFields);
-      
-      cardContent += '</div>';
-      return cardContent;
-    };
-    
-    // 不分组
-    if (!groupBy) {
-      const cardsHtml = allGoals.map(goal => renderCard(goal)).join('');
-      return `<div class="al-gallery-view"><div class="al-gallery-section"><div class="al-gallery-section-title">目标 (${allGoals.length})</div><div class="al-gallery-grid">${cardsHtml}<div class="al-gallery-add-card" id="al-gallery-add-goal"><span class="al-gallery-add-icon">+</span><span>添加目标</span></div></div></div></div>`;
-    }
-    
-    // 分组
-    const groups = new Map<string, Goal[]>();
-    
-    if (groupBy === 'level') {
-      // 按层级分组
-      for (const goal of allGoals) {
-        const key = String(goal['A-level']);
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key)!.push(goal);
-      }
-    } else if (groupBy === 'goalStatus') {
-      // 按状态分组
-      for (const goal of allGoals) {
-        const key = goal['A-status'];
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key)!.push(goal);
-      }
-    } else if (groupBy === 'parent') {
-      // 按父目标分组
-      for (const goal of allGoals) {
-        const key = goal['A-parent'] || '__root__';
-        if (!groups.has(key)) groups.set(key, []);
-        groups.get(key)!.push(goal);
-      }
-    }
-    
-    // 定义分组顺序（统一为字符串）
-    const levelOrder = ['1', '2', '3', '4'];
-    const statusOrder = ['active', 'completed', 'abandoned'];
-    const groupOrder = groupBy === 'level' ? levelOrder : (groupBy === 'goalStatus' ? statusOrder : Array.from(groups.keys()).sort());
-    
-    let sectionsHtml = '';
-    for (const key of groupOrder) {
-      const goals = groups.get(key) || [];
-      if (goals.length === 0) continue;
-      
-      let groupLabel: string;
-      let groupColor: string;
-      if (groupBy === 'level') {
-        groupLabel = levelNames[parseInt(key)];
-        groupColor = levelColors[parseInt(key)];
-      } else if (groupBy === 'goalStatus') {
-        groupLabel = statusNames[key];
-        groupColor = statusColors[key];
-      } else {
-        // 按父目标分组
-        if (key === '__root__') {
-          groupLabel = '顶级目标';
-          groupColor = 'var(--text-muted)';
-        } else {
-          const parentGoal = this.getGoal(key);
-          groupLabel = parentGoal ? parentGoal['A-title'] : '未知目标';
-          groupColor = 'var(--interactive-accent)';
-        }
-      }
-      
-      const cardsHtml = goals.map(goal => renderCard(goal)).join('');
-      
-      sectionsHtml += `
-        <div class="al-gallery-section">
-          <div class="al-gallery-section-title">
-            <span class="al-gallery-section-dot" style="background:${groupColor}"></span>
-            ${groupLabel} (${goals.length})
-          </div>
-          <div class="al-gallery-grid">${cardsHtml}<div class="al-gallery-add-card" data-prefill-level="${groupBy === 'level' ? key : ''}" data-prefill-status="${groupBy === 'goalStatus' ? key : ''}" data-prefill-parent="${groupBy === 'parent' && key !== '__root__' ? key : ''}"><span class="al-gallery-add-icon">+</span><span>添加目标</span></div></div>
-        </div>
-      `;
-    }
-    
-    return `<div class="al-gallery-view">${sectionsHtml}</div>`;
-  }
-  
   private calculateWeekComplete(completedTasks: Task[]): number {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     return completedTasks.filter(t => { if (!t['A-completed']) return false; return new Date(t['A-completed']) >= weekAgo; }).length;
   }
-  
-  private renderEmpty(icon: string, title: string, desc: string): string { return `<div class="al-empty"><span>${icon}</span><div>${title}</div><div class="al-empty-desc">${desc}</div></div>`; }
-  
-  private renderGoalFields(goal: Goal, fields: GoalField[], allTasks: Task[]): string {
-    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
-    const goalTasks = allTasks.filter(t => t['A-goal'] === goal['A-id']);
-    const completedCount = goalTasks.filter(t => t['A-status'] === 'completed').length;
-    
-    let html = '';
-    if (fields.includes('level')) html += `<span class="al-goal-level" data-level="${goal['A-level']}">${levelNames[goal['A-level']]}</span>`;
-    if (fields.includes('status')) html += `<span class="al-goal-status ${goal['A-status']}">${statusNames[goal['A-status']]}</span>`;
-    if (fields.includes('title')) html += `<div class="al-goal-title">${goal['A-title']}</div>`;
-    if (fields.includes('progress')) html += `<div class="al-goal-progress"><div class="al-progress-bar"><div class="al-progress-fill" style="width:${goal['A-progress']}%"></div></div><span>${goal['A-progress']}%</span></div>`;
-    if (fields.includes('due') && goal['A-due']) html += `<div class="al-goal-due">📅 ${goal['A-due']}</div>`;
-    if (fields.includes('tasksCount')) html += `<div class="al-goal-meta">📋 ${goalTasks.length} 个任务</div>`;
-    if (fields.includes('completedTasksCount')) html += `<div class="al-goal-meta">✓ 已完成 ${completedCount} 个</div>`;
-    
-    return html;
-  }
-  
-  private renderCalendar(): string {
-    const modes: CalendarViewMode[] = ['day', 'week', 'month', 'year'];
-    const modeLabels: Record<CalendarViewMode, string> = { day: '日', week: '周', month: '月', year: '年' };
-    
-    let content = '';
-    
-    switch (this.calendarMode) {
-      case 'day':
-        content = this.renderDayView(this.calendarDate);
-        break;
-      case 'week':
-        content = this.renderWeekView(this.calendarDate);
-        break;
-      case 'month':
-        content = this.renderMonthView(this.calendarDate);
-        break;
-      case 'year':
-        content = this.renderYearView(this.calendarDate);
-        break;
-    }
-    
-    return `
-      <div class="al-calendar-modes">
-        ${modes.map(m => `<button class="al-calendar-mode-btn ${this.calendarMode === m ? 'active' : ''}" data-mode="${m}">${modeLabels[m]}</button>`).join('')}
-      </div>
-      <div class="al-calendar-content">${content}</div>
-    `;
-  }
-  
-  private renderDayView(date: Date): string {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const startDay = firstDay.getDay();
-    const daysInMonth = lastDay.getDate();
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    
-    let cells = '';
-    const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
-    weekDays.forEach(d => cells += `<div class="al-cal-day-header">${d}</div>`);
-    
-    for (let i = 0; i < startDay; i++) {
-      cells += `<div class="al-cal-day empty"></div>`;
-    }
-    
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const isToday = todayStr === dateStr;
-      const isSelected = this.selectedDay === dateStr;
-      const classes = ['al-cal-day'];
-      if (isToday) classes.push('today');
-      if (isSelected) classes.push('day-selected');
-      cells += `<div class="${classes.join(' ')}" data-date="${dateStr}">${d}</div>`;
-    }
-    
-    return `
-      <div class="al-calendar-nav"><button class="al-calendar-prev" id="al-cal-prev-day">◀</button><span class="al-calendar-title">${year}年${month + 1}月</span><button class="al-calendar-next" id="al-cal-next-day">▶</button></div>
-      <div class="al-cal-grid">${cells}</div>
-    `;
-  }
-  
-  private renderWeekView(date: Date): string {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const firstDay = new Date(year, month, 1);
-    const lastDay = new Date(year, month + 1, 0);
-    const startDay = firstDay.getDay();
-    const daysInMonth = lastDay.getDate();
-    const today = new Date();
-    const todayStr = today.toISOString().split('T')[0];
-    
-    let cells = '';
-    const weekDays = ['日', '一', '二', '三', '四', '五', '六'];
-    weekDays.forEach(d => cells += `<div class="al-cal-day-header">${d}</div>`);
-    
-    for (let i = 0; i < startDay; i++) {
-      cells += `<div class="al-cal-day empty"></div>`;
-    }
-    
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dayDate = new Date(year, month, d);
-      const weekStart = new Date(dayDate);
-      weekStart.setDate(dayDate.getDate() - dayDate.getDay());
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      const weekStartStr = weekStart.toISOString().split('T')[0];
-      const isToday = todayStr === dateStr;
-      const isSelected = this.selectedWeekStart === weekStartStr;
-      const classes = ['al-cal-day'];
-      if (isToday) classes.push('today');
-      if (isSelected) classes.push('week-selected');
-      cells += `<div class="${classes.join(' ')}" data-week-start="${weekStartStr}" data-date="${dateStr}">${d}</div>`;
-    }
-    
-    return `
-      <div class="al-calendar-nav"><button class="al-calendar-prev" id="al-cal-prev-week">◀</button><span class="al-calendar-title">${year}年${month + 1}月</span><button class="al-calendar-next" id="al-cal-next-week">▶</button></div>
-      <div class="al-cal-grid">${cells}</div>
-    `;
-  }
-  
-  private renderMonthView(date: Date): string {
-    const year = date.getFullYear();
-    const month = date.getMonth();
-    const today = new Date();
-    let months = '';
-    const monthNames = ['一月', '二月', '三月', '四月', '五月', '六月', '七月', '八月', '九月', '十月', '十一月', '十二月'];
-    
-    for (let m = 0; m < 12; m++) {
-      const isCurrentMonth = today.getFullYear() === year && today.getMonth() === m;
-      const monthKey = `${year}-${String(m + 1).padStart(2, '0')}`;
-      const isSelected = this.selectedMonth === monthKey;
-      const classes = ['al-cal-month-item'];
-      if (isCurrentMonth) classes.push('current');
-      if (isSelected) classes.push('selected');
-      months += `<div class="${classes.join(' ')}" data-year="${year}" data-month="${m + 1}" data-month-key="${monthKey}">${monthNames[m]}</div>`;
-    }
-    
-    return `
-      <div class="al-calendar-nav"><button class="al-calendar-prev" id="al-cal-prev-month">◀</button><span class="al-calendar-title">${year}年</span><button class="al-calendar-next" id="al-cal-next-month">▶</button></div>
-      <div class="al-cal-month-grid">${months}</div>
-    `;
-  }
-  
-  private renderYearView(date: Date): string {
-    const year = date.getFullYear();
-    const prevYear = year - 1;
-    const nextYear = year + 1;
-    const today = new Date();
-    const isCurrentYear = today.getFullYear() === year;
-    
-    const prevYearSel = this.selectedYear === prevYear.toString();
-    const currentYearSel = this.selectedYear === year.toString();
-    const nextYearSel = this.selectedYear === nextYear.toString();
-    
-    return `
-      <div class="al-calendar-nav"><button class="al-calendar-prev" id="al-cal-prev-year">◀</button><span class="al-calendar-title">选择年份</span><button class="al-calendar-next" id="al-cal-next-year">▶</button></div>
-      <div class="al-cal-year-display">
-        <div class="al-cal-year-item ${prevYearSel ? 'selected' : ''}" data-year="${prevYear}">${prevYear}</div>
-        <div class="al-cal-year-item current ${isCurrentYear && !this.selectedYear ? '' : (currentYearSel ? 'selected' : '')}" data-year="${year}">${year}</div>
-        <div class="al-cal-year-item ${nextYearSel ? 'selected' : ''}" data-year="${nextYear}">${nextYear}</div>
-      </div>
-    `;
-  }
-  
-  private renderTaskFields(task: Task, fields: TaskField[]): string {
-    const priorityColors: Record<number, string> = { 1: '--text-red', 2: '--text-orange', 3: '--text-yellow', 4: '--text-green', 5: '--text-muted' };
-    const statusNames: Record<string, string> = { 'pending': '待办', 'in-progress': '进行中', 'completed': '已完成', 'cancelled': '已取消' };
-    
-    let metaHtml = '';
-    if (fields.includes('priority')) metaHtml += `<div class="al-field-row"><span class="al-field-label">优先级</span><span class="al-field-value" style="color:var(${priorityColors[task['A-priority']]})">${['最高','高','中','低','最低'][task['A-priority']-1]}</span></div>`;
-    if (fields.includes('status')) metaHtml += `<div class="al-field-row"><span class="al-field-label">状态</span><span class="al-status-badge status-${task['A-status']}">${statusNames[task['A-status']]}</span></div>`;
-    if (fields.includes('due') && task['A-due']) metaHtml += `<div class="al-field-row"><span class="al-field-label">截止</span><span class="al-task-due">${task['A-due']}</span></div>`;
-    if (fields.includes('goal')) metaHtml += `<div class="al-field-row"><span class="al-field-label">目标</span><span class="al-goal-tag">${this.getGoalTitle(task['A-goal'])}</span></div>`;
-    if (fields.includes('tags') && task['A-tags'].length > 0) metaHtml += `<div class="al-field-row"><span class="al-field-label">标签</span><span>${task['A-tags'].map(t => '#' + t).join(' ')}</span></div>`;
-    
-    let titleHtml = '';
-    if (fields.includes('title')) titleHtml = `<div class="al-task-title ${task['A-status']==='completed'?'done':''}">${task['A-title']}</div>`;
-    
-    return `${titleHtml}${metaHtml ? `<div class="al-task-meta">${metaHtml}</div>` : ''}`;
-  }
-  
-  private renderTasks(tasks: Task[]): string {
-    const fields = this.getTaskFields();
-    return tasks.slice(0, 10).map(task => `<div class="al-task" data-task-id="${task['A-id']}"><div class="al-task-check ${task['A-status']==='completed'?'checked':''}" data-task-id="${task['A-id']}">${task['A-status']==='completed'?'✓':''}</div><div class="al-task-content">${this.renderTaskFields(task, fields)}</div></div>`).join('');
-  }
-  
+
   private bindEvents(): void {
     const content = this.contentEl;
-    
+
     // Calendar events
-    this.bindCalendarEvents(content);
-    
+    this.calendarRenderer.bindCalendarEvents(content);
+
     // 仪表盘标签点击（固定的）
-    content.querySelectorAll('.al-view-tab[data-view]').forEach(tab => { 
-      tab.addEventListener('click', () => { 
-        const view = (tab as HTMLElement).getAttribute('data-view') as ViewType; 
-        if (view === 'dashboard' && this.currentView !== 'dashboard') { 
-          this.currentView = 'dashboard'; 
-          this.selectedGoalId = null; 
-          this.selectedTaskId = null; 
-          this.render(); 
+    content.querySelectorAll('.al-view-tab[data-view]').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const view = (tab as HTMLElement).getAttribute('data-view') as ViewType;
+        if (view === 'dashboard' && this.currentView !== 'dashboard') {
+          this.currentView = 'dashboard';
+          this.selectedGoalId = null;
+          this.selectedTaskId = null;
+          this.render();
         }
-      }); 
+      });
     });
-    
+
     // 标签页点击事件
     content.querySelectorAll('.al-view-tab[data-tab-id]').forEach(tab => {
       tab.addEventListener('click', () => {
@@ -1719,7 +709,7 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // 标签页右键菜单（桌面端）和长按菜单（移动端）
     content.querySelectorAll('.al-view-tab[data-tab-id]').forEach(tabEl => {
       // 右键菜单
@@ -1730,7 +720,7 @@ export class DashboardView extends ItemView {
           this.showTabContextMenu(nameEl || tabEl, tabId, e as MouseEvent);
         }
       });
-      
+
       // 长按弹出菜单（移动端）
       let longPressTimer: number | null = null;
       tabEl.addEventListener('touchstart', (e) => {
@@ -1742,14 +732,14 @@ export class DashboardView extends ItemView {
           }
         }, 500);
       });
-      
+
       tabEl.addEventListener('touchend', () => {
         if (longPressTimer) {
           clearTimeout(longPressTimer);
           longPressTimer = null;
         }
       });
-      
+
       tabEl.addEventListener('touchcancel', () => {
         if (longPressTimer) {
           clearTimeout(longPressTimer);
@@ -1757,13 +747,13 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // 添加视图按钮 - 显示下拉菜单
     content.querySelector('#al-add-view-tab')?.addEventListener('click', (e) => {
       e.stopPropagation();
       this.showAddViewDropdown(e as MouseEvent);
     });
-    
+
     // 看板/画廊分组选择
     content.querySelector('#al-board-group-by')?.addEventListener('change', (e) => {
       const groupByValue = (e.target as HTMLSelectElement).value;
@@ -1771,18 +761,18 @@ export class DashboardView extends ItemView {
       this.updateActiveTabGroupBy(groupBy);
       this.render();
     });
-    
+
     // 返回按钮 - 返回上一页
     content.querySelector('#al-back-btn')?.addEventListener('click', () => { this.goBack(); });
-    
+
     // 目标更多操作菜单 - 使用 Obsidian 原生 Menu
     const menuBtn = content.querySelector('#al-goal-menu-btn');
-    
+
     menuBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
       const menu = new Menu();
       menu.setUseNativeMenu(true);
-      
+
       menu.addItem((item) => {
         item.setTitle('打开目标文件')
           .setIcon('file-text')
@@ -1801,7 +791,7 @@ export class DashboardView extends ItemView {
             }
           });
       });
-      
+
       menu.addItem((item) => {
         item.setTitle('刷新目标')
           .setIcon('refresh-cw')
@@ -1813,7 +803,7 @@ export class DashboardView extends ItemView {
             }
           });
       });
-      
+
       menu.addItem((item) => {
         item.setTitle('删除目标')
           .setIcon('trash-2')
@@ -1822,7 +812,7 @@ export class DashboardView extends ItemView {
               const goal = this.getGoal(this.selectedGoalId);
               if (goal) {
                 const subGoals = this.plugin.getGoalManager().getAllGoals().filter(g => g['A-parent'] === this.selectedGoalId);
-                
+
                 if (subGoals.length > 0) {
                   this.showDeleteGoalWithChildrenModal(goal, subGoals);
                 } else {
@@ -1839,21 +829,21 @@ export class DashboardView extends ItemView {
             }
           });
       });
-      
+
       menu.showAtPosition({ x: (e.target as HTMLElement).getBoundingClientRect().right, y: (e.target as HTMLElement).getBoundingClientRect().bottom + 4 });
     });
-    
+
     // Goal click events - 记录历史
     content.querySelectorAll('.al-goal, .al-gallery-goal').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.navigateTo('goal-detail', goalId, null); } }); });
-    
+
     // Task click events (in detail views) - 记录历史
     content.querySelectorAll('.al-detail-task').forEach(el => { el.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.task-list-item-checkbox')) { return; } const taskId = (e.currentTarget as HTMLElement).getAttribute('data-task-id'); if (taskId) { this.showTaskDetailModal(taskId); } }); });
-    
+
     // Task goal card click
     content.querySelectorAll('.al-task-goal-card').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { this.navigateTo('goal-detail', goalId, null); } }); });
-    
+
     content.querySelector('#al-add-task-to-goal')?.addEventListener('click', () => { if (this.selectedGoalId) this.showCreateTaskModalForGoal(this.selectedGoalId); });
-    
+
     // 封面图片点击事件
     content.querySelectorAll('.al-detail-add-cover, .al-detail-cover').forEach(el => {
       el.addEventListener('click', (e) => {
@@ -1879,7 +869,7 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // 字段行内编辑事件
     content.querySelectorAll('.al-field-row[data-field], .al-progress-field-row[data-field], .al-detail-description-block[data-field]').forEach(row => {
       row.addEventListener('click', (e) => {
@@ -1893,12 +883,12 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // 上级目标点击 - 选择父目标
     content.querySelector('.al-parent-field-row')?.addEventListener('click', () => {
       this.showParentSelectorModal();
     });
-    
+
     // 进度管理块折叠/展开
     content.querySelector('#al-progress-management-toggle')?.addEventListener('click', () => {
       const content = document.querySelector('#al-progress-management-content') as HTMLElement;
@@ -1915,7 +905,7 @@ export class DashboardView extends ItemView {
         }
       }
     });
-    
+
     // 子目标折叠面板折叠/展开
     content.querySelector('#al-subgoals-toggle')?.addEventListener('click', () => {
       const content = document.querySelector('#al-subgoals-content') as HTMLElement;
@@ -1932,7 +922,7 @@ export class DashboardView extends ItemView {
         }
       }
     });
-    
+
     // 子目标点击 - 跳转到子目标详情
     content.querySelectorAll('.al-subgoal-item').forEach(item => {
       item.addEventListener('click', (e) => {
@@ -1940,14 +930,14 @@ export class DashboardView extends ItemView {
         if (goalId) this.navigateTo('goal-detail', goalId, null);
       });
     });
-    
+
     // 添加子目标按钮
     content.querySelector('#al-add-subgoal-btn')?.addEventListener('click', () => {
       if (this.selectedGoalId) {
         this.showCreateGoalModal({ parent: this.selectedGoalId });
       }
     });
-    
+
     // 关联任务折叠面板折叠/展开
     content.querySelector('#al-tasks-toggle')?.addEventListener('click', () => {
       const content = document.querySelector('#al-tasks-content') as HTMLElement;
@@ -1964,7 +954,7 @@ export class DashboardView extends ItemView {
         }
       }
     });
-    
+
     // 任务点击事件
     content.querySelectorAll('.al-task-item').forEach(item => {
       item.addEventListener('click', (e) => {
@@ -1974,7 +964,7 @@ export class DashboardView extends ItemView {
         if (taskId) this.showTaskDetailModal(taskId);
       });
     });
-    
+
     // 自定义字段点击编辑事件
     content.querySelectorAll('.al-custom-field-item').forEach(item => {
       item.addEventListener('click', (e) => {
@@ -1988,12 +978,12 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // 添加自定义字段按钮
     content.querySelector('#al-add-custom-field-btn')?.addEventListener('click', () => {
       this.showAddCustomFieldModal();
     });
-    
+
     // 上级目标点击事件
     content.querySelectorAll('.al-field-link[data-goal-id]').forEach(link => {
       link.addEventListener('click', (e) => {
@@ -2001,7 +991,7 @@ export class DashboardView extends ItemView {
         if (goalId) this.navigateTo('goal-detail', goalId, null);
       });
     });
-    
+
     // 进度滑块事件
     content.querySelectorAll('.al-progress-slider[data-field="progress"]').forEach(slider => {
       const valueEl = slider.parentElement?.querySelector('.al-progress-value');
@@ -2022,10 +1012,10 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // 列表视图添加按钮
     content.querySelector('#al-list-add-goal')?.addEventListener('click', () => this.showCreateGoalModal());
-    
+
     // 画廊视图添加按钮（事件委托，处理分组和不分组的添加按钮）
     content.querySelectorAll('.al-gallery-add-card').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -2044,7 +1034,7 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // 看板列添加按钮（事件委托）
     content.querySelectorAll('.al-add-goal-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -2060,18 +1050,18 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // 筛选事件
     content.querySelector('#al-toggle-filter-builder')?.addEventListener('click', () => {
       this.tempShowFilterBuilder = !this.tempShowFilterBuilder;
       this.render();
     });
-    
+
     content.querySelector('#al-filter-save')?.addEventListener('click', () => {
       this.updateActiveTabFilters(this.tempFilterConditions, this.tempFilterLogic);
       new Notice('筛选条件已保存');
     });
-    
+
     content.querySelector('#al-filter-clear')?.addEventListener('click', () => {
       this.tempFilterConditions = [];
       this.tempFilterLogic = 'and';
@@ -2079,7 +1069,7 @@ export class DashboardView extends ItemView {
       this.updateActiveTabFilters([], 'and');
       this.render();
     });
-    
+
     content.querySelector('#al-add-filter-condition')?.addEventListener('click', () => {
       this.tempFilterConditions.push({
         id: this.generateFilterId(),
@@ -2089,7 +1079,7 @@ export class DashboardView extends ItemView {
       });
       this.render();
     });
-    
+
     // 条件逻辑切换
     content.querySelectorAll('.al-filter-logic-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -2100,31 +1090,31 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // 字段选择变化
     content.querySelectorAll('.al-filter-field-select').forEach(select => {
       select.addEventListener('change', (e) => {
         const conditionId = (e.currentTarget as HTMLElement).closest('.al-filter-condition')?.getAttribute('data-condition-id');
         if (conditionId) {
           const newField = (e.target as HTMLSelectElement).value;
-          this.updateFilterCondition(conditionId, { field: newField });
+          this.filterHelper.updateFilterCondition(conditionId, { field: newField });
           this.render();
         }
       });
     });
-    
+
     // 操作符变化
     content.querySelectorAll('.al-filter-operator-select').forEach(select => {
       select.addEventListener('change', (e) => {
         const conditionId = (e.currentTarget as HTMLElement).closest('.al-filter-condition')?.getAttribute('data-condition-id');
         if (conditionId) {
           const newOperator = (e.target as HTMLSelectElement).value as FilterOperator;
-          this.updateFilterCondition(conditionId, { operator: newOperator });
+          this.filterHelper.updateFilterCondition(conditionId, { operator: newOperator });
           this.render();
         }
       });
     });
-    
+
     // 值输入变化
     content.querySelectorAll('.al-filter-value-input, .al-filter-value-select').forEach(input => {
       input.addEventListener('change', (e) => {
@@ -2147,201 +1137,81 @@ export class DashboardView extends ItemView {
 
               // 只有当两个值都有时才更新
               if (currentValue[0] && currentValue[1]) {
-                this.updateFilterCondition(conditionId, { value: currentValue.join(',') });
+                this.filterHelper.updateFilterCondition(conditionId, { value: currentValue.join(',') });
               }
             }
           } else {
             const newValue = (e.target as HTMLInputElement | HTMLSelectElement).value;
-            this.updateFilterCondition(conditionId, { value: newValue || null });
+            this.filterHelper.updateFilterCondition(conditionId, { value: newValue || null });
           }
         }
       });
     });
-    
+
     // 删除条件
     content.querySelectorAll('.al-filter-remove-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const conditionId = (e.currentTarget as HTMLElement).getAttribute('data-condition-id');
         if (conditionId) {
-          this.removeFilterCondition(conditionId);
+          this.filterHelper.removeFilterCondition(conditionId);
         }
       });
     });
-    
+
     // Board group by selector
-    
+
     // Task actions
     content.querySelector('#al-complete-task')?.addEventListener('click', async () => { if (this.selectedTaskId) { await this.plugin.getTaskManager().completeTask(this.selectedTaskId); this.loadAndRender(); } });
     content.querySelector('#al-uncomplete-task')?.addEventListener('click', async () => { if (this.selectedTaskId) { await this.plugin.getTaskManager().updateTask(this.selectedTaskId, { status: 'pending' }); this.loadAndRender(); } });
     content.querySelector('#al-delete-task-btn')?.addEventListener('click', async () => { if (this.selectedTaskId && confirm('确定要删除这个任务吗？')) { await this.plugin.getTaskManager().deleteTask(this.selectedTaskId); this.currentView = 'dashboard'; this.selectedTaskId = null; this.loadAndRender(); } });
-    
+
     // Task checkbox clicks
     content.querySelectorAll('.task-list-item-checkbox[data-task-id]').forEach(checkbox => { checkbox.addEventListener('click', async (e) => { e.stopPropagation(); }); checkbox.addEventListener('change', async (e) => { e.stopPropagation(); const taskId = (e.target as HTMLInputElement).getAttribute('data-task-id'); if (taskId) { await this.toggleTaskStatus(taskId); } }); });
-    
+
     // Field settings button
     content.querySelector('#al-open-field-settings')?.addEventListener('click', () => this.showFieldSettingsModal());
-    
+
     // Board drag and drop
-    this.bindBoardDragEvents(content);
+    this.boardRenderer.bindBoardDragEvents(content);
   }
-  
-  private bindBoardDragEvents(content: HTMLElement): void {
-    // 拖拽目标卡片
-    content.querySelectorAll('.al-board-view .al-goal-card').forEach(cardEl => {
-      cardEl.addEventListener('mousedown', (e) => {
-        const goalId = (cardEl as HTMLElement).getAttribute('data-goal-id');
-        if (!goalId) return;
-        
-        this.startGoalDrag(cardEl as HTMLElement, goalId, e as MouseEvent);
-      });
-      
-      // 点击进入详情页
-      cardEl.addEventListener('click', (e) => {
-        // 如果正在拖拽，不触发点击
-        if (this.draggingGoalId) return;
-        
-        const goalId = (cardEl as HTMLElement).getAttribute('data-goal-id');
-        if (goalId) {
-          this.navigateTo('goal-detail', goalId, null);
-        }
-      });
-    });
-    
-    // 列的放置区域
-    content.querySelectorAll('.al-board-column').forEach(columnEl => {
-      columnEl.addEventListener('mouseenter', () => {
-        if (this.draggingGoalId) {
-          this.dropTargetColumn = (columnEl as HTMLElement).getAttribute('data-column-value');
-          columnEl.classList.add('drop-target');
-        }
-      });
-      
-      columnEl.addEventListener('mouseleave', () => {
-        columnEl.classList.remove('drop-target');
-        if (this.dropTargetColumn === (columnEl as HTMLElement).getAttribute('data-column-value')) {
-          this.dropTargetColumn = null;
-        }
-      });
-    });
-    
-    // 鼠标移动
-    document.addEventListener('mousemove', (e: MouseEvent) => {
-      if (this.dragGhost) {
-        this.dragGhost.style.left = e.clientX + 'px';
-        this.dragGhost.style.top = e.clientY + 'px';
-      }
-    });
-    
-    // 鼠标释放
-    document.addEventListener('mouseup', () => {
-      if (this.draggingGoalId && this.dropTargetColumn) {
-        this.handleGoalDrop();
-      }
-      this.endGoalDrag();
-    });
-  }
-  
-  private startGoalDrag(cardEl: HTMLElement, goalId: string, e: MouseEvent): void {
-    this.draggingGoalId = goalId;
-    this.draggingGoalEl = cardEl;
-    
-    // 创建拖拽影子
-    const rect = cardEl.getBoundingClientRect();
-    this.dragGhost = cardEl.cloneNode(true) as HTMLElement;
-    this.dragGhost.classList.add('drag-ghost');
-    this.dragGhost.style.width = rect.width + 'px';
-    this.dragGhost.style.left = e.clientX + 'px';
-    this.dragGhost.style.top = e.clientY + 'px';
-    document.body.appendChild(this.dragGhost);
-    
-    // 隐藏原卡片
-    cardEl.classList.add('dragging');
-  }
-  
-  private endGoalDrag(): void {
-    if (this.dragGhost) {
-      this.dragGhost.remove();
-      this.dragGhost = null;
-    }
-    if (this.draggingGoalEl) {
-      this.draggingGoalEl.classList.remove('dragging');
-      this.draggingGoalEl = null;
-    }
-    this.draggingGoalId = null;
-    this.dropTargetColumn = null;
-    
-    // 移除所有列的 drop-target 类
-    document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
-  }
-  
-  private async handleGoalDrop(): Promise<void> {
-    if (!this.draggingGoalId || !this.dropTargetColumn) return;
-    
-    const goal = this.plugin.getGoalManager().getGoal(this.draggingGoalId);
-    if (!goal) return;
-    
-    const currentFilters = this.getCurrentFilters();
-    const columnType = currentFilters.groupBy;
-    
-    try {
-      if (columnType === 'level') {
-        // 按层级分组：拖动目标到不同层级列，更新目标层级
-        const newLevel = parseInt(this.dropTargetColumn) as GoalLevel;
-        if (goal['A-level'] !== newLevel) {
-          await this.plugin.getGoalManager().updateGoal(this.draggingGoalId, { level: newLevel });
-          new Notice('目标已移动到新层级');
-        }
-      } else if (columnType === 'goalStatus') {
-        // 按状态分组：拖动目标到不同状态列，更新目标状态
-        const newStatus = this.dropTargetColumn as 'active' | 'completed' | 'abandoned';
-        if (goal['A-status'] !== newStatus) {
-          await this.plugin.getGoalManager().updateGoal(this.draggingGoalId, { status: newStatus });
-          new Notice('目标状态已更新');
-        }
-      }
-      this.loadAndRender();
-    } catch (error) {
-      new Notice('更新失败');
-    }
-  }
-  
+
   private async toggleTaskStatus(taskId: string): Promise<void> {
     const task = this.plugin.getTaskManager().getTask(taskId);
     if (!task) return;
     try { if (task['A-status'] === 'completed') { await this.plugin.getTaskManager().updateTask(taskId, { status: 'pending' }); } else { await this.plugin.getTaskManager().completeTask(taskId); } this.loadAndRender(); } catch (error) { new Notice('更新失败: ' + (error as Error).message); }
   }
-  
+
   private async loadGoalReferences(): Promise<void> {
     if (this.currentView !== 'goal-detail' || !this.selectedGoalId) {
       return;
     }
-    
+
     const container = this.contentEl.querySelector('#al-references-container');
     const contentEl = this.contentEl.querySelector('#al-references-content');
     const countEl = this.contentEl.querySelector('#al-references-count');
-    
+
     if (!container || !contentEl || !countEl) {
       return;
     }
-    
+
     try {
       const references = await this.plugin.getGoalManager().getGoalReferences(this.selectedGoalId);
       const goal = this.getGoal(this.selectedGoalId);
       const goalTitle = goal ? goal['A-title'] : '';
-      
+
       countEl.textContent = references.length.toString();
-      
+
       if (references.length === 0) {
         contentEl.innerHTML = `<div class="al-detail-references-empty"><span class="al-empty-text">暂无引用记录</span></div>`;
         return;
       }
-      
+
       const referencesHtml = references.map(ref => {
         let lineContent = ref.lineContent;
         if (goalTitle) {
           lineContent = lineContent.replace(new RegExp(goalTitle, 'g'), `<span class="al-reference-highlight">${goalTitle}</span>`);
         }
-        
+
         return `
           <div class="al-detail-reference-item" data-file-path="${ref.filePath}">
             <div class="al-reference-file-info">
@@ -2353,9 +1223,9 @@ export class DashboardView extends ItemView {
           </div>
         `;
       }).join('');
-      
+
       contentEl.innerHTML = referencesHtml;
-      
+
       contentEl.querySelectorAll('.al-detail-reference-item').forEach(item => {
         item.addEventListener('click', () => {
           const filePath = item.getAttribute('data-file-path');
@@ -2437,77 +1307,8 @@ export class DashboardView extends ItemView {
     }
   }
 
-  private bindCalendarEvents(content: HTMLElement): void {
-    // 模式切换
-    content.querySelectorAll('.al-calendar-mode-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const mode = btn.getAttribute('data-mode') as CalendarViewMode;
-        this.calendarMode = mode;
-        this.render();
-      });
-    });
-    
-    // 上一个
-    content.querySelector('#al-cal-prev-day')?.addEventListener('click', () => { this.calendarDate.setMonth(this.calendarDate.getMonth() - 1); this.selectedWeekStart = null; this.render(); });
-    content.querySelector('#al-cal-prev-week')?.addEventListener('click', () => { this.calendarDate.setMonth(this.calendarDate.getMonth() - 1); this.selectedWeekStart = null; this.render(); });
-    content.querySelector('#al-cal-prev-month')?.addEventListener('click', () => { this.calendarDate.setFullYear(this.calendarDate.getFullYear() - 1); this.selectedWeekStart = null; this.render(); });
-    content.querySelector('#al-cal-prev-year')?.addEventListener('click', () => { this.calendarDate.setFullYear(this.calendarDate.getFullYear() - 1); this.selectedWeekStart = null; this.render(); });
-    
-    // 下一个
-    content.querySelector('#al-cal-next-day')?.addEventListener('click', () => { this.calendarDate.setMonth(this.calendarDate.getMonth() + 1); this.selectedWeekStart = null; this.render(); });
-    content.querySelector('#al-cal-next-week')?.addEventListener('click', () => { this.calendarDate.setMonth(this.calendarDate.getMonth() + 1); this.selectedWeekStart = null; this.render(); });
-    content.querySelector('#al-cal-next-month')?.addEventListener('click', () => { this.calendarDate.setFullYear(this.calendarDate.getFullYear() + 1); this.selectedWeekStart = null; this.render(); });
-    content.querySelector('#al-cal-next-year')?.addEventListener('click', () => { this.calendarDate.setFullYear(this.calendarDate.getFullYear() + 1); this.selectedWeekStart = null; this.render(); });
-    
-    // 日视图：点击日期打开日记（排除有 data-week-start 的元素）
-    content.querySelectorAll('.al-cal-day:not(.empty):not([data-week-start])').forEach(day => {
-      day.addEventListener('click', () => {
-        const dateStr = day.getAttribute('data-date');
-        if (dateStr) {
-          this.selectedDay = dateStr;
-          this.render();
-          this.openDailyNote(dateStr);
-        }
-      });
-    });
-    
-    // 周视图：点击选中整行并打开周记
-    content.querySelectorAll('.al-cal-day[data-week-start]').forEach(day => {
-      day.addEventListener('click', () => {
-        const weekStart = day.getAttribute('data-week-start');
-        if (weekStart) {
-          this.selectedWeekStart = weekStart;
-          // 重新渲染以显示选中效果
-          this.render();
-          this.openWeeklyNoteByDate(weekStart);
-        }
-      });
-    });
-    
-    // 月视图：点击月份打开月记
-    content.querySelectorAll('.al-cal-month-item').forEach(month => {
-      month.addEventListener('click', () => {
-        const yearNum = parseInt(month.getAttribute('data-year') || this.calendarDate.getFullYear().toString());
-        const monthNum = parseInt(month.getAttribute('data-month') || '1');
-        const yearMonth = `${yearNum}-${String(monthNum).padStart(2, '0')}`;
-        this.selectedMonth = yearMonth;
-        this.render();
-        this.openMonthlyNoteByDate(yearMonth);
-      });
-    });
-    
-    // 年视图：点击年份打开年记
-    content.querySelectorAll('.al-cal-year-item').forEach(yearEl => {
-      yearEl.addEventListener('click', () => {
-        const yearNum = parseInt(yearEl.getAttribute('data-year') || this.calendarDate.getFullYear().toString());
-        this.selectedYear = yearNum.toString();
-        this.render();
-        this.openYearlyNoteByDate(yearNum.toString());
-      });
-    });
-  }
-  
-  private async openDailyNote(dateStr: string): Promise<void> {
+  // 日历视图调用：打开日记
+  public async openDailyNote(dateStr: string): Promise<void> {
     try {
       const date = new Date(dateStr);
       const noteManager = this.plugin.getNoteManager();
@@ -2519,8 +1320,8 @@ export class DashboardView extends ItemView {
       new Notice('打开日记失败');
     }
   }
-  
-  private async openWeeklyNoteByDate(weekStartStr: string): Promise<void> {
+
+  public async openWeeklyNoteByDate(weekStartStr: string): Promise<void> {
     try {
       const weekStart = new Date(weekStartStr);
       const startOfYear = new Date(weekStart.getFullYear(), 0, 1);
@@ -2534,8 +1335,8 @@ export class DashboardView extends ItemView {
       new Notice('打开周记失败');
     }
   }
-  
-  private async openMonthlyNoteByDate(yearMonth: string): Promise<void> {
+
+  public async openMonthlyNoteByDate(yearMonth: string): Promise<void> {
     try {
       const file = await this.plugin.getNoteManager().getOrCreateMonthlyNote(yearMonth);
       await this.plugin.app.workspace.getLeaf(true).openFile(file);
@@ -2544,8 +1345,8 @@ export class DashboardView extends ItemView {
       new Notice('打开月记失败');
     }
   }
-  
-  private async openYearlyNoteByDate(year: string): Promise<void> {
+
+  public async openYearlyNoteByDate(year: string): Promise<void> {
     try {
       const file = await this.plugin.getNoteManager().getOrCreateYearlyNote(year);
       await this.plugin.app.workspace.getLeaf(true).openFile(file);
@@ -2554,28 +1355,28 @@ export class DashboardView extends ItemView {
       new Notice('打开年记失败');
     }
   }
-  
+
   private showFieldSettingsModal(): void {
     const viewKey = this.getCurrentViewType();
     const isGoalView = viewKey === 'gallery' || viewKey === 'goal' || viewKey === 'board' || viewKey === 'list';
     const settings = this.plugin.getSettings();
-    const currentFields = isGoalView 
+    const currentFields = isGoalView
       ? (settings.viewFields[viewKey as 'gallery' | 'goal' | 'board' | 'list'] as GoalField[])
       : (settings.viewFields[viewKey as 'dashboard'] as TaskField[]);
-    
+
     const fieldLabels = isGoalView ? GOAL_FIELD_LABELS : TASK_FIELD_LABELS;
     // 目标视图排除 title 字段（标题始终显示）
     const fields = Object.keys(fieldLabels).filter(f => !(isGoalView && f === 'title')) as (GoalField | TaskField)[];
     const viewNames: Record<string, string> = { dashboard: '仪表盘任务', board: '看板目标', list: '列表目标', gallery: '画廊目标', goal: '目标详情' };
-    
+
     const modal = document.createElement('div');
     modal.className = 'al-modal';
-    
+
     const fieldsHtml = fields.map(field => {
       const isSelected = currentFields.includes(field as any);
       return `<button class="al-field-toggle-btn ${isSelected ? 'selected' : ''}" data-field="${field}">${fieldLabels[field as keyof typeof fieldLabels]}</button>`;
     }).join('');
-    
+
     modal.innerHTML = `
       <div class="al-modal-bg"></div>
       <div class="al-modal-box al-field-settings-modal">
@@ -2593,13 +1394,13 @@ export class DashboardView extends ItemView {
         </div>
       </div>
     `;
-    
+
     document.body.appendChild(modal);
-    
+
     const close = () => modal.remove();
     modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
     modal.querySelector('.al-modal-close')?.addEventListener('click', close);
-    
+
     // Field toggle clicks
     modal.querySelectorAll('.al-field-toggle-btn').forEach(btn => {
       btn.addEventListener('click', () => {
@@ -2614,7 +1415,7 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // Reset button
     modal.querySelector('#al-reset-fields')?.addEventListener('click', () => {
       const defaults = DEFAULT_VIEW_FIELDS[viewKey as keyof typeof DEFAULT_VIEW_FIELDS];
@@ -2629,7 +1430,7 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // Save button
     modal.querySelector('#al-save-fields')?.addEventListener('click', async () => {
       settings.viewFields[viewKey as keyof typeof settings.viewFields] = [...currentFields] as any;
@@ -2641,16 +1442,16 @@ export class DashboardView extends ItemView {
       this.render();
     });
   }
-  
+
   // 显示添加视图下拉菜单
   private showAddViewDropdown(e: MouseEvent): void {
     const addBtn = e.currentTarget as HTMLElement;
     const rect = addBtn.getBoundingClientRect();
-    
+
     // 移除已存在的下拉菜单
     const existingDropdown = document.querySelector('.al-add-view-dropdown');
     if (existingDropdown) existingDropdown.remove();
-    
+
     // 创建下拉菜单
     const dropdown = document.createElement('div');
     dropdown.className = 'al-add-view-dropdown show';
@@ -2668,14 +1469,14 @@ export class DashboardView extends ItemView {
         <span>画廊视图</span>
       </div>
     `;
-    
+
     // 设置位置
     dropdown.style.left = rect.left + 'px';
     dropdown.style.top = (rect.bottom + 4) + 'px';
-    
+
     // 添加到 body
     document.body.appendChild(dropdown);
-    
+
     // 设置图标
     setTimeout(() => {
       dropdown.querySelectorAll('.al-tab-icon').forEach(iconEl => {
@@ -2687,7 +1488,7 @@ export class DashboardView extends ItemView {
         }
       });
     }, 0);
-    
+
     // 选项点击
     dropdown.querySelectorAll('.al-add-view-option').forEach(opt => {
       opt.addEventListener('click', async (e) => {
@@ -2699,7 +1500,7 @@ export class DashboardView extends ItemView {
         }
       });
     });
-    
+
     // 点击外部关闭
     const closeHandler = (event: MouseEvent) => {
       if (!dropdown.contains(event.target as Node)) {
@@ -2711,7 +1512,7 @@ export class DashboardView extends ItemView {
       document.addEventListener('click', closeHandler);
     }, 0);
   }
-  
+
   private showDeleteGoalWithChildrenModal(goal: Goal, subGoals: Goal[]): void {
     const modal = document.createElement('div');
     modal.className = 'al-modal';
@@ -2755,13 +1556,13 @@ export class DashboardView extends ItemView {
         </div>
       </div>
     `;
-    
+
     document.body.appendChild(modal);
-    
+
     const close = () => modal.remove();
     modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
     modal.querySelector('.al-modal-close')?.addEventListener('click', close);
-    
+
     // 选中样式
     modal.querySelectorAll('.al-delete-option').forEach(option => {
       option.addEventListener('click', () => {
@@ -2769,15 +1570,15 @@ export class DashboardView extends ItemView {
         (option as HTMLElement).style.borderColor = 'var(--interactive-accent)';
       });
     });
-    
+
     modal.querySelector('#al-confirm-delete-with-children')?.addEventListener('click', async () => {
       const selectedMode = (modal.querySelector('input[name="delete-mode"]:checked') as HTMLInputElement)?.value;
-      
+
       if (selectedMode === 'cancel') {
         close();
         return;
       }
-      
+
       try {
         if (selectedMode === 'promote') {
           // 提升子目标：移除所有子目标的父目标引用
@@ -2795,28 +1596,28 @@ export class DashboardView extends ItemView {
       }
     });
   }
-  
+
   private showParentSelectorModal(): void {
     if (!this.selectedGoalId) return;
-    
+
     const currentGoal = this.getGoal(this.selectedGoalId);
     if (!currentGoal) return;
-    
+
     const allGoals = this.plugin.getGoalManager().getAllGoals();
     // 排除自己和自己的子目标（防止循环引用）
     const descendants = this.plugin.getGoalManager().getDescendants(this.selectedGoalId);
     const excludeIds = new Set([this.selectedGoalId, ...descendants.map(g => g['A-id'])]);
-    
+
     const levelNames: Record<number, string> = { 1: '🏆', 2: '📅', 3: '📆', 4: '⚡' };
     const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
-    
+
     const availableGoals = allGoals.filter(g => !excludeIds.has(g['A-id']));
-    
+
     const goalOptions = availableGoals.map(goal => {
       const selected = goal['A-id'] === currentGoal['A-parent'] ? 'selected' : '';
       return `<option value="${goal['A-id']}" ${selected}>${levelNames[goal['A-level']]} ${goal['A-title']}</option>`;
     }).join('');
-    
+
     const modal = document.createElement('div');
     modal.className = 'al-modal';
     modal.innerHTML = `
@@ -2842,17 +1643,17 @@ export class DashboardView extends ItemView {
         </div>
       </div>
     `;
-    
+
     document.body.appendChild(modal);
-    
+
     const close = () => modal.remove();
     modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
     modal.querySelector('.al-modal-close')?.addEventListener('click', close);
     modal.querySelector('#al-parent-cancel')?.addEventListener('click', close);
-    
+
     modal.querySelector('#al-parent-save')?.addEventListener('click', async () => {
       const parentId = (modal.querySelector('#al-parent-select') as HTMLSelectElement).value || null;
-      
+
       try {
         await this.plugin.getGoalManager().updateGoal(this.selectedGoalId!, { parent: parentId });
         new Notice(parentId ? '已设置上级目标' : '已移除上级目标');
@@ -2863,14 +1664,14 @@ export class DashboardView extends ItemView {
       }
     });
   }
-  
+
   private showCreateGoalModal(prefill?: { level?: number; status?: string; parent?: string }): void {
     const levelOptions = [1, 2, 3, 4].map(level => {
       const labels: Record<number, string> = { 1: '🏆 人生目标', 2: '📅 阶段目标', 3: '📆 年度目标', 4: '⚡ 短期目标' };
       const selected = prefill?.level === level ? 'selected' : (level === 3 && !prefill?.level ? 'selected' : '');
       return `<option value="${level}" ${selected}>${labels[level]}</option>`;
     }).join('');
-    
+
     // 获取可选的父目标列表
     const allGoals = this.plugin.getGoalManager().getAllGoals();
     const levelNames: Record<number, string> = { 1: '🏆', 2: '📅', 3: '📆', 4: '⚡' };
@@ -2878,7 +1679,7 @@ export class DashboardView extends ItemView {
       const selected = prefill?.parent === goal['A-id'] ? 'selected' : '';
       return `<option value="${goal['A-id']}" ${selected}>${levelNames[goal['A-level']]} ${goal['A-title']}</option>`;
     }).join('');
-    
+
     const modal = document.createElement('div');
     modal.className = 'al-modal';
     modal.innerHTML = `<div class="al-modal-bg"></div><div class="al-modal-box"><div class="al-modal-header"><span>🎯 创建目标</span><button class="al-modal-close">×</button></div><form id="al-goal-form"><div class="al-form-item"><label>目标名称</label><input type="text" id="al-goal-title" required placeholder="例如：学习一门新语言"></div><div class="al-form-item"><label>目标层级</label><select id="al-goal-level">${levelOptions}</select></div><div class="al-form-item"><label>上级目标（可选）</label><select id="al-goal-parent"><option value="">无</option>${parentOptions}</select></div><div class="al-form-item"><label>截止日期</label><input type="date" id="al-goal-due"></div><div class="al-form-actions"><button type="button" id="al-cancel-goal">取消</button><button type="submit" class="mod-cta">创建</button></div></form></div>`;
@@ -2888,20 +1689,20 @@ export class DashboardView extends ItemView {
     modal.querySelector('.al-modal-close')?.addEventListener('click', close);
     modal.querySelector('#al-cancel-goal')?.addEventListener('click', close);
     modal.querySelector('#al-goal-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const title = (modal.querySelector('#al-goal-title') as HTMLInputElement).value.trim(); const level = Number((modal.querySelector('#al-goal-level') as HTMLSelectElement).value) as GoalLevel; const parent = (modal.querySelector('#al-goal-parent') as HTMLSelectElement).value || null; const due = (modal.querySelector('#al-goal-due') as HTMLInputElement).value || null; if (!title) { new Notice('请输入目标名称'); return; } try { await this.plugin.getGoalManager().createGoal({ title, level, due, parent }); new Notice('目标创建成功！'); close(); this.loadAndRender(); } catch (error) { new Notice('创建失败: ' + (error as Error).message); } });
-    
+
     // 自动聚焦到标题输入框
     setTimeout(() => (modal.querySelector('#al-goal-title') as HTMLInputElement)?.focus(), 100);
   }
-  
+
   private showTaskDetailModal(taskId: string): void {
     const task = this.getTask(taskId);
     if (!task) { new Notice('任务不存在'); return; }
-    
+
     const allGoals = this.plugin.getGoalManager().getAllGoals();
     const goalOptions = allGoals.map(goal => `<option value="${goal['A-id']}" ${goal['A-id'] === task['A-goal'] ? 'selected' : ''}>${goal['A-title']}</option>`).join('');
     const priorityOptions = [1, 2, 3, 4, 5].map(p => `<option value="${p}" ${p === task['A-priority'] ? 'selected' : ''}>${['🔴 最高', '🟠 高', '🟡 中', '🟢 低', '⚪ 最低'][p - 1]}</option>`).join('');
     const statusOptions = ['pending', 'in-progress', 'completed', 'cancelled'].map(s => `<option value="${s}" ${s === task['A-status'] ? 'selected' : ''}>${['待办', '进行中', '已完成', '已取消'][['pending', 'in-progress', 'completed', 'cancelled'].indexOf(s)]}</option>`).join('');
-    
+
     const modal = document.createElement('div');
     modal.className = 'al-modal';
     modal.innerHTML = `
@@ -2949,15 +1750,15 @@ export class DashboardView extends ItemView {
         </div>
       </div>
     `;
-    
+
     document.body.appendChild(modal);
-    
+
     const close = () => modal.remove();
-    
+
     modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
     modal.querySelector('.al-modal-close')?.addEventListener('click', close);
     modal.querySelector('#al-task-detail-cancel')?.addEventListener('click', close);
-    
+
     modal.querySelector('#al-task-detail-delete')?.addEventListener('click', async () => {
       if (confirm('确定要删除这个任务吗？')) {
         try {
@@ -2970,7 +1771,7 @@ export class DashboardView extends ItemView {
         }
       }
     });
-    
+
     modal.querySelector('#al-task-detail-save')?.addEventListener('click', async () => {
       const title = (modal.querySelector('#al-task-detail-title') as HTMLInputElement).value.trim();
       const status = (modal.querySelector('#al-task-detail-status') as HTMLSelectElement).value as TaskStatus;
@@ -2979,9 +1780,9 @@ export class DashboardView extends ItemView {
       const due = (modal.querySelector('#al-task-detail-due') as HTMLInputElement).value || null;
       const goal = (modal.querySelector('#al-task-detail-goal') as HTMLSelectElement).value || null;
       const description = (modal.querySelector('#al-task-detail-description') as HTMLTextAreaElement).value.trim() || null;
-      
+
       if (!title) { new Notice('请输入任务名称'); return; }
-      
+
       try {
         await this.plugin.getTaskManager().updateTask(taskId, { title, status, priority, start, due, goal, description });
         new Notice('任务已保存');
@@ -2992,13 +1793,13 @@ export class DashboardView extends ItemView {
       }
     });
   }
-  
+
   private showCreateTaskModal(): void {
     const allGoals = this.plugin.getGoalManager().getAllGoals();
     if (allGoals.length === 0) { new Notice('请先创建目标，再添加任务'); this.showCreateGoalModal(); return; }
     this.showCreateTaskModalForGoal(null);
   }
-  
+
   private showCreateTaskModalForGoal(goalId: string | null): void {
     const allGoals = this.plugin.getGoalManager().getAllGoals();
     const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
@@ -3015,15 +1816,15 @@ export class DashboardView extends ItemView {
     modal.querySelector('#al-cancel-task')?.addEventListener('click', close);
     modal.querySelector('#al-task-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const title = (modal.querySelector('#al-task-title') as HTMLInputElement).value.trim(); const selectedGoalId = (modal.querySelector('#al-task-goal') as HTMLSelectElement).value; const priority = Number((modal.querySelector('#al-task-priority') as HTMLSelectElement).value) as TaskPriority; const due = (modal.querySelector('#al-task-due') as HTMLInputElement).value || null; if (!title) { new Notice('请输入任务名称'); return; } if (!selectedGoalId) { new Notice('请选择关联目标'); return; } try { await this.plugin.getTaskManager().createTask({ title, priority, due, goal: selectedGoalId }); new Notice('任务创建成功！'); close(); this.loadAndRender(); } catch (error) { new Notice('创建失败: ' + (error as Error).message); } });
   }
-  
+
   private startFieldEdit(row: HTMLElement, field: string, fieldType: string, currentValue: string): void {
     const editableEl = row.querySelector('.al-field-editable');
     if (!editableEl) return;
-    
+
     const isProgressField = row.classList.contains('al-progress-field-row');
-    
+
     let inputEl: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
-    
+
     if (fieldType === 'select') {
       inputEl = document.createElement('select');
       inputEl.className = isProgressField ? 'al-field-edit-select al-progress-edit-input' : 'al-field-edit-select';
@@ -3062,9 +1863,9 @@ export class DashboardView extends ItemView {
       inputEl.className = isProgressField ? 'al-field-edit-input al-progress-edit-input' : 'al-field-edit-input';
       inputEl.value = currentValue;
     }
-    
+
     editableEl.replaceWith(inputEl);
-    
+
     const saveEdit = async () => {
       let saveValue: string | null = '';
       if (inputEl instanceof HTMLTextAreaElement) {
@@ -3072,7 +1873,7 @@ export class DashboardView extends ItemView {
       } else {
         saveValue = inputEl.value;
       }
-      
+
       try {
         const updateData: Record<string, unknown> = {};
         if (field === 'progress') {
@@ -3084,7 +1885,7 @@ export class DashboardView extends ItemView {
         } else {
           updateData[field] = saveValue;
         }
-        
+
         await this.plugin.getGoalManager().updateGoal(this.selectedGoalId!, updateData);
         new Notice('更新成功');
         this.loadAndRender();
@@ -3093,7 +1894,7 @@ export class DashboardView extends ItemView {
         this.loadAndRender();
       }
     };
-    
+
     inputEl.addEventListener('blur', saveEdit);
     inputEl.addEventListener('keydown', (e) => {
       const event = e as KeyboardEvent;
@@ -3105,24 +1906,24 @@ export class DashboardView extends ItemView {
         this.loadAndRender();
       }
     });
-    
+
     inputEl.focus();
   }
-  
+
   // 自定义字段编辑
   private startCustomFieldEdit(element: HTMLElement, fieldKey: string, fieldType: string, currentValue: any): void {
     const valueSpan = element.querySelector('.al-custom-field-value');
     if (!valueSpan) return;
-    
+
     const currentText = currentValue !== undefined && currentValue !== null && currentValue !== '' ? String(currentValue) : '';
-    
+
     // 获取字段配置以获取选项
     const settings = this.plugin.getSettings();
     const fieldConfig = settings.customGoalFields?.find(f => f.key === fieldKey);
     const options = fieldConfig?.options?.split(',').map(o => o.trim()) || [];
-    
+
     let inputEl: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
-    
+
     if (fieldType === 'select' && options.length > 0) {
       inputEl = document.createElement('select');
       inputEl.className = 'al-field-edit-select';
@@ -3150,17 +1951,17 @@ export class DashboardView extends ItemView {
       inputEl.value = currentText;
       inputEl.className = 'al-field-edit-input';
     }
-    
+
     valueSpan.replaceWith(inputEl);
     inputEl.focus();
     if ('select' in inputEl && inputEl.tagName !== 'SELECT') {
       (inputEl as HTMLInputElement).select();
     }
-    
+
     const saveEdit = async () => {
       const saveValue = inputEl.value;
       inputEl.remove();
-      
+
       try {
         const updateData: Record<string, any> = {};
         updateData[fieldKey] = saveValue;
@@ -3172,7 +1973,7 @@ export class DashboardView extends ItemView {
         this.loadAndRender();
       }
     };
-    
+
     inputEl.addEventListener('blur', saveEdit);
     inputEl.addEventListener('keydown', (e: Event) => {
       const event = e as KeyboardEvent;
@@ -3185,7 +1986,7 @@ export class DashboardView extends ItemView {
       }
     });
   }
-  
+
   // 添加自定义字段弹窗
   private showAddCustomFieldModal(): void {
     const modal = document.createElement('div');
@@ -3230,38 +2031,38 @@ export class DashboardView extends ItemView {
         </div>
       </div>
     `;
-    
+
     document.body.appendChild(modal);
-    
+
     const keyInput = modal.querySelector('#al-custom-field-key') as HTMLInputElement;
     const labelInput = modal.querySelector('#al-custom-field-label') as HTMLInputElement;
     const typeSelect = modal.querySelector('#al-custom-field-type') as HTMLSelectElement;
     const optionsRow = modal.querySelector('#al-custom-field-options-row') as HTMLElement;
     const optionsInput = modal.querySelector('#al-custom-field-options') as HTMLInputElement;
     const valueInput = modal.querySelector('#al-custom-field-value') as HTMLInputElement;
-    
+
     // 类型选择时显示/隐藏选项输入框
     typeSelect.addEventListener('change', () => {
       optionsRow.style.display = typeSelect.value === 'select' ? 'block' : 'none';
     });
-    
+
     const close = () => modal.remove();
     modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
     modal.querySelector('.al-modal-close')?.addEventListener('click', close);
     modal.querySelector('#al-custom-field-cancel')?.addEventListener('click', close);
-    
+
     modal.querySelector('#al-custom-field-save')?.addEventListener('click', async () => {
       const fieldKey = keyInput.value.trim();
       const fieldLabel = labelInput.value.trim() || fieldKey;
       const fieldType = typeSelect.value;
       const fieldOptions = typeSelect.value === 'select' ? optionsInput.value.trim() : '';
       const fieldValue = valueInput.value.trim();
-      
+
       if (!fieldKey) {
         new Notice('请输入字段名称');
         return;
       }
-      
+
       // 检查是否已存在
       const settings = this.plugin.getSettings();
       const existingFields = settings.customGoalFields || [];
@@ -3269,7 +2070,7 @@ export class DashboardView extends ItemView {
         new Notice('该字段已存在');
         return;
       }
-      
+
       // 添加到设置
       const newField: CustomFieldConfig = {
         key: fieldKey,
@@ -3278,32 +2079,32 @@ export class DashboardView extends ItemView {
         options: fieldOptions,
         showInViews: ['gallery', 'list', 'board']
       };
-      
+
       existingFields.push(newField);
       settings.customGoalFields = existingFields;
       await this.plugin.saveSettings();
-      
+
       // 如果有值，更新目标
       if (fieldValue && this.selectedGoalId) {
         const updateData: Record<string, any> = {};
         updateData[fieldKey] = fieldValue;
         await this.plugin.getGoalManager().updateGoal(this.selectedGoalId, updateData);
       }
-      
+
       new Notice('自定义字段已添加');
       close();
       this.loadAndRender();
     });
-    
+
     keyInput.focus();
   }
-  
+
   private async openTodayNote(): Promise<void> { try { await this.plugin.getNoteManager().getOrCreateTodayNote(); new Notice('今日日记已打开'); } catch (error) { new Notice('打开日记失败'); } }
   private async openWeeklyNote(): Promise<void> { try { await this.plugin.getNoteManager().getOrCreateWeeklyNote(this.plugin.getNoteManager().getCurrentWeekKey()); new Notice('本周周记已打开'); } catch (error) { new Notice('打开周记失败'); } }
   private async openMonthlyNote(): Promise<void> { try { await this.plugin.getNoteManager().getOrCreateMonthlyNote(this.plugin.getNoteManager().getCurrentYearMonth()); new Notice('本月月记已打开'); } catch (error) { new Notice('打开月记失败'); } }
-  
+
   private removeStyles(): void { const oldStyle = document.getElementById('al-dashboard-styles'); if (oldStyle) oldStyle.remove(); }
-  
+
   private async setTabIcons(): Promise<void> {
     const icons = this.contentEl.querySelectorAll('.al-tab-icon');
     for (const iconEl of icons) {
@@ -3317,7 +2118,7 @@ export class DashboardView extends ItemView {
       }
     }
   }
-  
+
   private addStyles(): void {
     this.removeStyles();
     const style = document.createElement('style');
@@ -3358,240 +2159,7 @@ export class DashboardView extends ItemView {
       .al-custom-fields{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border-color)}.al-custom-field{display:flex;align-items:center;gap:6px;font-size:12px;margin-bottom:4px}.al-custom-field-label{color:var(--text-muted);min-width:60px}.al-custom-field-value{color:var(--text-secondary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-custom-tag{display:inline-block;padding:2px 6px;background:var(--background-primary);border-radius:4px;font-size:11px;color:var(--interactive-accent);margin-right:4px}.al-custom-link{color:var(--interactive-accent);text-decoration:none}.al-custom-link:hover{text-decoration:underline}.al-custom-field-cell{font-size:12px;color:var(--text-secondary)}.al-settings-desc{font-size:12px;color:var(--text-muted);margin:4px 0}
       .al-detail-custom-fields-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-custom-fields-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color);cursor:pointer}.al-detail-custom-fields-header:hover{background:var(--background-modifier-hover)}.al-detail-custom-fields-icon{font-size:16px}.al-detail-custom-fields-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-detail-custom-fields-count{background:var(--interactive-accent);color:#fff;font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px}.al-detail-custom-fields-content{padding:12px 16px}.al-custom-field-item{display:flex;align-items:center;gap:12px;padding:10px 12px;border-radius:6px;cursor:pointer;transition:all .15s;margin-bottom:4px}.al-custom-field-item:hover{background:var(--background-modifier-hover)}.al-custom-field-label{font-size:13px;color:var(--text-secondary);min-width:80px;flex-shrink:0}.al-custom-field-value{font-size:14px;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-custom-field-value.empty{color:var(--text-muted);font-style:italic}.al-goal-context-menu{display:none;position:fixed;z-index:10000;min-width:180px;padding:4px 0}.al-goal-context-menu.show{display:block}.al-goal-context-menu .menu-item-icon{margin-right:8px}
       .al-progress-management-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-progress-management-header{display:flex;align-items:center;gap:8px;padding:12px 16px;cursor:pointer}.al-progress-management-header:hover{background:var(--background-modifier-hover)}.al-progress-management-icon{font-size:16px}.al-progress-management-title{font-size:13px;font-weight:600;color:var(--text-secondary);flex:1}.al-progress-management-toggle-icon{font-size:12px;color:var(--text-muted);transition:transform .2s}.al-progress-management-toggle-icon.collapsed{transform:rotate(-90deg)}.al-progress-management-content{padding:0}.al-progress-management-fields{padding:12px 16px;display:flex;flex-direction:column;gap:12px;border-bottom:1px solid var(--border-color)}.al-progress-field-row{display:flex;align-items:center;gap:12px;padding:4px 0}.al-progress-field-label{font-size:14px;color:var(--text-secondary);min-width:80px;flex-shrink:0}.al-progress-field-value{font-size:14px;color:var(--text-primary);flex:1;display:flex;align-items:center;justify-content:flex-start}.al-progress-field-value .al-progress-slider-container{max-width:200px}.al-progress-edit-input{text-align:left!important;justify-content:flex-start!important}.al-subgoals-panel{border-top:1px dashed var(--border-color)}.al-subgoals-panel-header{display:flex;align-items:center;gap:8px;padding:12px 16px;cursor:pointer}.al-subgoals-panel-header:hover{background:var(--background-modifier-hover)}.al-subgoals-toggle-icon{font-size:12px;color:var(--text-muted);transition:transform .2s}.al-subgoals-toggle-icon.expanded{transform:rotate(90deg)}.al-subgoals-panel-title{font-size:13px;color:var(--text-secondary);flex:1}.al-subgoals-count{background:var(--interactive-accent);color:#fff;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px}.al-subgoals-panel-content{padding:8px 16px 16px}.al-subgoals-list{display:flex;flex-direction:column;gap:8px}.al-subgoal-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--background-primary);border-radius:6px;cursor:pointer;transition:all .15s}.al-subgoal-item:hover{background:var(--background-modifier-hover)}.al-subgoal-level{font-size:10px;padding:2px 6px;border-radius:4px;color:#fff;font-weight:600;flex-shrink:0}.al-subgoal-title{font-size:13px;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-subgoal-progress{display:flex;align-items:center;gap:8px;flex-shrink:0}.al-subgoal-progress .al-progress-bar-small{width:60px;height:4px;background:var(--background-modifier-border);border-radius:2px;overflow:hidden}.al-subgoal-progress .al-progress-fill-small{height:100%;background:var(--interactive-accent)}.al-subgoal-progress span{font-size:11px;color:var(--text-muted);min-width:32px;text-align:right}.al-subgoals-empty{text-align:center;padding:16px;color:var(--text-muted);font-size:13px}.al-tasks-panel{border-top:1px dashed var(--border-color)}.al-tasks-panel-header{display:flex;align-items:center;gap:8px;padding:12px 16px;cursor:pointer}.al-tasks-panel-header:hover{background:var(--background-modifier-hover)}.al-tasks-toggle-icon{font-size:12px;color:var(--text-muted);transition:transform .2s}.al-tasks-toggle-icon.expanded{transform:rotate(90deg)}.al-tasks-panel-title{font-size:13px;color:var(--text-secondary);flex:1}.al-tasks-count{background:var(--interactive-accent);color:#fff;font-size:11px;font-weight:600;padding:2px 8px;border-radius:10px}.al-tasks-summary{font-size:11px;color:var(--text-muted);margin-left:auto}.al-tasks-panel-content{padding:8px 16px 16px}.al-tasks-list{display:flex;flex-direction:column;gap:8px}.al-task-item{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--background-primary);border-radius:6px;cursor:pointer;transition:all .15s}.al-task-item:hover{background:var(--background-modifier-hover)}.al-task-title{font-size:13px;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-task-title.done{text-decoration:line-through;color:var(--text-muted)}.al-task-priority{font-size:14px;flex-shrink:0}.al-tasks-empty{text-align:center;padding:16px;color:var(--text-muted);font-size:13px}
-      `;
+    `;
     document.head.appendChild(style);
-  }
-}
-
-class DeleteConfirmModal extends Modal {
-  private goalTitle: string;
-  private onConfirm: () => void;
-
-  constructor(plugin: AmazingLife, goalTitle: string, onConfirm: () => void) {
-    super(plugin.app);
-    this.goalTitle = goalTitle;
-    this.onConfirm = onConfirm;
-  }
-
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.empty();
-    
-    contentEl.createEl('h2', { text: '删除目标', cls: 'al-modal-header' });
-    
-    const body = contentEl.createDiv('al-modal-body');
-    body.createEl('p', { text: `确定要删除目标「${this.goalTitle}」吗？此操作不可撤销。` });
-    
-    const footer = contentEl.createDiv('al-modal-footer');
-    const cancelBtn = footer.createEl('button', { text: '取消', cls: 'al-btn al-btn-secondary' });
-    const deleteBtn = footer.createEl('button', { text: '删除', cls: 'al-btn al-btn-danger' });
-    
-    cancelBtn.addEventListener('click', () => this.close());
-    deleteBtn.addEventListener('click', () => {
-      this.onConfirm();
-      this.close();
-    });
-  }
-
-  onClose() {
-    const { contentEl } = this;
-    contentEl.empty();
-  }
-}
-
-// 封面图片选择弹窗
-class CoverImagePickerModal extends Modal {
-  private plugin: AmazingLife;
-  private goalId: string;
-  private onSelect: (imagePath: string) => void;
-  private onRemove: () => void;
-  private currentCover: string | null;
-
-  constructor(plugin: AmazingLife, goalId: string, currentCover: string | null, onSelect: (imagePath: string) => void, onRemove: () => void) {
-    super(plugin.app);
-    this.plugin = plugin;
-    this.goalId = goalId;
-    this.currentCover = currentCover;
-    this.onSelect = onSelect;
-    this.onRemove = onRemove;
-  }
-  
-  // 将封面图路径转换为可显示的 URL
-  private getCoverImageUrl(path: string | null): string | null {
-    if (!path) return null;
-    
-    // 如果已经是 http/https 或 app:// URL，直接返回
-    if (path.startsWith('http://') || path.startsWith('https://') || path.startsWith('app://')) {
-      return path;
-    }
-    
-    // 如果是 vault 中的文件路径，使用 getResourcePath 转换
-    try {
-      const file = this.plugin.app.vault.getAbstractFileByPath(path);
-      // getResourcePath 需要 TFile 对象
-      if (file instanceof TFile) {
-        return (this.plugin.app.vault as any).getResourcePath(file);
-      }
-    } catch (e) {
-      console.warn('封面图文件不存在:', path);
-    }
-    
-    return null;
-  }
-
-  onOpen() {
-    const { contentEl } = this;
-    contentEl.empty();
-    
-    contentEl.createEl('h2', { text: '设置封面图片', cls: 'al-modal-header' });
-    
-    const body = contentEl.createDiv('al-modal-body');
-    body.style.padding = '20px';
-    
-    // 当前封面预览
-    const previewUrl = this.getCoverImageUrl(this.currentCover);
-    if (previewUrl) {
-      const previewContainer = body.createDiv();
-      previewContainer.style.marginBottom = '16px';
-      previewContainer.style.textAlign = 'center';
-      
-      const previewImg = previewContainer.createEl('img');
-      previewImg.src = previewUrl;
-      previewImg.style.maxWidth = '100%';
-      previewImg.style.maxHeight = '200px';
-      previewImg.style.borderRadius = '8px';
-      previewImg.style.objectFit = 'cover';
-    }
-    
-    // 图片URL输入
-    const urlSection = body.createDiv();
-    urlSection.style.marginBottom = '16px';
-    
-    const urlLabel = urlSection.createEl('label');
-    urlLabel.textContent = '图片 URL';
-    urlLabel.style.display = 'block';
-    urlLabel.style.marginBottom = '8px';
-    urlLabel.style.fontSize = '13px';
-    urlLabel.style.color = 'var(--text-secondary)';
-    
-    const urlInput = urlSection.createEl('input');
-    urlInput.type = 'text';
-    urlInput.placeholder = '输入图片 URL 或选择本地图片...';
-    urlInput.style.width = '100%';
-    urlInput.style.padding = '10px 12px';
-    urlInput.style.border = '1px solid var(--border-color)';
-    urlInput.style.borderRadius = '6px';
-    urlInput.style.background = 'var(--background-secondary)';
-    urlInput.style.color = 'var(--text-primary)';
-    urlInput.style.boxSizing = 'border-box';
-    urlInput.value = this.currentCover || '';
-    
-    // 选择本地图片按钮
-    const localBtn = body.createEl('button');
-    localBtn.textContent = '📁 选择本地图片';
-    localBtn.style.width = '100%';
-    localBtn.style.padding = '10px';
-    localBtn.style.marginBottom = '16px';
-    localBtn.style.border = '1px solid var(--border-color)';
-    localBtn.style.borderRadius = '6px';
-    localBtn.style.background = 'var(--background-secondary)';
-    localBtn.style.color = 'var(--text-primary)';
-    localBtn.style.cursor = 'pointer';
-    localBtn.style.fontSize = '14px';
-    
-    localBtn.addEventListener('click', async () => {
-      const inputEl = document.createElement('input');
-      inputEl.type = 'file';
-      inputEl.accept = 'image/*';
-      // iOS 兼容：使用 position 隐藏而非 display:none，确保 input 可交互
-      inputEl.style.position = 'absolute';
-      inputEl.style.left = '-9999px';
-      inputEl.style.top = '0';
-      inputEl.style.opacity = '0';
-      document.body.appendChild(inputEl);
-
-      const cleanup = () => {
-        if (document.body.contains(inputEl)) {
-          document.body.removeChild(inputEl);
-        }
-      };
-
-      inputEl.onchange = async () => {
-        const file = inputEl.files?.[0];
-        if (file) {
-          try {
-            // 使用用户配置的封面图目录
-            const coversPath = this.plugin.getSettings().coverPath;
-            await this.plugin.app.vault.createFolder(coversPath).catch(() => {});
-
-            // 生成安全的文件名
-            const fileExt = file.name.split('.').pop() || 'png';
-            const fileName = `${this.goalId}_${Date.now()}.${fileExt}`;
-            const targetPath = `${coversPath}/${fileName}`;
-
-            // 将文件保存为 vault 中的文件（二进制）
-            const arrayBuffer = await file.arrayBuffer();
-            await this.plugin.app.vault.createBinary(targetPath, arrayBuffer);
-
-            // 获取保存后的文件对象，用于生成 resource URL
-            const savedFile = this.plugin.app.vault.getAbstractFileByPath(targetPath);
-            if (savedFile instanceof TFile) {
-              // 使用 Obsidian 的 getResourcePath 生成正确的 URL
-              const resourcePath = (this.plugin.app.vault as any).getResourcePath(savedFile);
-              urlInput.value = resourcePath;
-            } else {
-              // 降级：使用 vault 相对路径
-              urlInput.value = targetPath;
-            }
-          } catch (error) {
-            new Notice('上传图片失败: ' + (error as Error).message);
-          }
-        }
-        cleanup();
-      };
-
-      // iOS 兼容：使用 setTimeout 延迟调用 click，确保在用户手势事件之后执行
-      setTimeout(() => {
-        inputEl.click();
-      }, 0);
-
-      // 处理取消选择的情况
-      const handleCancel = () => {
-        cleanup();
-        window.removeEventListener('focus', handleCancel);
-      };
-      window.addEventListener('focus', handleCancel, { once: true });
-    });
-    
-    // 按钮区域
-    const footer = contentEl.createDiv('al-modal-footer');
-    
-    if (this.currentCover) {
-      const removeBtn = footer.createEl('button', { text: '移除封面', cls: 'al-btn al-btn-danger' });
-      removeBtn.addEventListener('click', () => {
-        this.onRemove();
-        this.close();
-      });
-    }
-    
-    const cancelBtn = footer.createEl('button', { text: '取消', cls: 'al-btn al-btn-secondary' });
-    cancelBtn.addEventListener('click', () => this.close());
-    
-    const confirmBtn = footer.createEl('button', { text: '确认', cls: 'al-btn' });
-    confirmBtn.style.background = 'var(--interactive-accent)';
-    confirmBtn.style.color = '#fff';
-    confirmBtn.style.border = 'none';
-    confirmBtn.addEventListener('click', () => {
-      const url = urlInput.value.trim();
-      if (url) {
-        this.onSelect(url);
-      }
-      this.close();
-    });
-  }
-
-  onClose() {
-    const { contentEl } = this;
-    contentEl.empty();
   }
 }
