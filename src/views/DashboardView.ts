@@ -1369,6 +1369,11 @@ export class DashboardView extends ItemView {
     const fields = Object.keys(fieldLabels).filter(f => !(isGoalView && f === 'title')) as (GoalField | TaskField)[];
     const viewNames: Record<string, string> = { dashboard: '仪表盘任务', board: '看板目标', list: '列表目标', gallery: '画廊目标', goal: '目标详情' };
 
+    // 获取可用的自定义字段（仅目标视图）
+    const customFields = isGoalView
+      ? settings.customGoalFields.filter(f => f.showInViews.includes(viewKey))
+      : [];
+
     const modal = document.createElement('div');
     modal.className = 'al-modal';
 
@@ -1376,6 +1381,18 @@ export class DashboardView extends ItemView {
       const isSelected = currentFields.includes(field as any);
       return `<button class="al-field-toggle-btn ${isSelected ? 'selected' : ''}" data-field="${field}">${fieldLabels[field as keyof typeof fieldLabels]}</button>`;
     }).join('');
+
+    // 自定义字段按钮
+    const customFieldsHtml = customFields.map(cf => {
+      const fieldKey = `custom_${cf.key}`;
+      const isSelected = currentFields.includes(fieldKey as any);
+      return `<button class="al-field-toggle-btn al-custom-field-btn ${isSelected ? 'selected' : ''}" data-field="${fieldKey}">${cf.label}</button>`;
+    }).join('');
+
+    const customFieldsSection = customFields.length > 0
+      ? `<p class="al-field-settings-desc" style="margin-top:12px">自定义字段：</p>
+         <div class="al-field-toggles">${customFieldsHtml}</div>`
+      : '';
 
     modal.innerHTML = `
       <div class="al-modal-bg"></div>
@@ -1387,6 +1404,7 @@ export class DashboardView extends ItemView {
         <div class="al-modal-body">
           <p class="al-field-settings-desc">选择在此视图中显示的字段：</p>
           <div class="al-field-toggles">${fieldsHtml}</div>
+          ${customFieldsSection}
         </div>
         <div class="al-modal-footer">
           <button class="al-btn" id="al-reset-fields">恢复默认</button>
