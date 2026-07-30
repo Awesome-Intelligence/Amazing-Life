@@ -662,8 +662,19 @@ export class DashboardView extends ItemView {
   
   // 评估单个条件
   private evaluateCondition(goal: Goal, condition: FilterCondition): boolean {
-    const value = goal[condition.field as keyof Goal];
-    
+    let value = goal[condition.field as keyof Goal];
+
+    // 对于虚拟年份字段，需要从对应的日期字段提取年份
+    if (condition.field.endsWith('-year')) {
+      const dateField = condition.field.replace('-year', '') as keyof Goal;
+      const dateValue = goal[dateField];
+      if (typeof dateValue === 'string' && dateValue) {
+        value = new Date(dateValue).getFullYear();
+      } else {
+        value = null;
+      }
+    }
+
     switch (condition.operator) {
       case 'equals':
         return value === condition.value;
@@ -705,6 +716,21 @@ export class DashboardView extends ItemView {
         return value === null || value === undefined;
       case 'is_not_null':
         return value !== null && value !== undefined;
+      case 'year_equals':
+        return typeof value === 'number' && value === Number(condition.value);
+      case 'year_not_equals':
+        return typeof value === 'number' && value !== Number(condition.value);
+      case 'year_before':
+        return typeof value === 'number' && value < Number(condition.value);
+      case 'year_after':
+        return typeof value === 'number' && value > Number(condition.value);
+      case 'year_between':
+        // condition.value 格式为 "2020,2025"，表示 2020 到 2025 之间
+        if (typeof value === 'number' && typeof condition.value === 'string') {
+          const [start, end] = condition.value.split(',').map(Number);
+          return value >= start && value <= end;
+        }
+        return false;
       default:
         return true;
     }
@@ -723,6 +749,8 @@ export class DashboardView extends ItemView {
         return ['equals', 'not_equals', 'greater_than', 'less_than', 'greater_or_equal', 'less_or_equal', 'is_empty', 'is_not_empty'];
       case 'array':
         return ['contains', 'not_contains', 'is_empty', 'is_not_empty'];
+      case 'year':
+        return ['year_equals', 'year_not_equals', 'year_before', 'year_after', 'year_between', 'is_empty', 'is_not_empty'];
       default:
         return ['equals', 'not_equals'];
     }
@@ -846,7 +874,40 @@ export class DashboardView extends ItemView {
     if (fieldDef.type === 'date') {
       return `<input type="date" class="al-filter-value-input al-filter-date-input" data-condition-id="${condition.id}" value="${condition.value || ''}">`;
     }
-    
+
+    if (fieldDef.type === 'year') {
+      const currentYear = new Date().getFullYear();
+      const years: number[] = [];
+      for (let y = currentYear - 10; y <= currentYear + 10; y++) {
+        years.push(y);
+      }
+
+      // 年份区间需要两个年份选择器
+      if (condition.operator === 'year_between') {
+        const [startYear, endYear] = condition.value ? String(condition.value).split(',').map(Number) : [null, null];
+        return `
+          <div class="al-filter-year-range">
+            <select class="al-filter-value-select al-filter-year-select" data-condition-id="${condition.id}" data-year-part="start">
+              <option value="">开始年份</option>
+              ${years.map(y => `<option value="${y}" ${startYear === y ? 'selected' : ''}>${y}年</option>`).join('')}
+            </select>
+            <span class="al-filter-year-range-sep">至</span>
+            <select class="al-filter-value-select al-filter-year-select" data-condition-id="${condition.id}" data-year-part="end">
+              <option value="">结束年份</option>
+              ${years.map(y => `<option value="${y}" ${endYear === y ? 'selected' : ''}>${y}年</option>`).join('')}
+            </select>
+          </div>
+        `;
+      }
+
+      return `
+        <select class="al-filter-value-select al-filter-year-select" data-condition-id="${condition.id}">
+          <option value="">请选择年份...</option>
+          ${years.map(y => `<option value="${y}" ${condition.value == y ? 'selected' : ''}>${y}年</option>`).join('')}
+        </select>
+      `;
+    }
+
     return `<input type="text" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" placeholder="输入值...">`;
   }
   
@@ -860,7 +921,18 @@ export class DashboardView extends ItemView {
   private updateFilterCondition(conditionId: string, updates: Partial<FilterCondition>): void {
     this.tempFilterConditions = this.tempFilterConditions.map(c => {
       if (c.id === conditionId) {
-        return { ...c, ...updates };
+        const updated = { ...c, ...updates };
+
+        // 如果字段改变，重置操作符为新字段的第一个有效操作符
+        if (updates.field && updates.field !== c.field) {
+          const fieldDef = GOAL_FILTER_FIELDS.find(f => f.field === updates.field);
+          const fieldType = fieldDef?.type || 'string';
+          const availableOperators = this.getOperatorsForFieldType(fieldType);
+          updated.operator = availableOperators[0] || 'equals';
+          updated.value = null; // 清空值
+        }
+
+        return updated;
       }
       return c;
     });
@@ -2057,9 +2129,31 @@ export class DashboardView extends ItemView {
     content.querySelectorAll('.al-filter-value-input, .al-filter-value-select').forEach(input => {
       input.addEventListener('change', (e) => {
         const conditionId = (e.currentTarget as HTMLElement).getAttribute('data-condition-id');
+        const yearPart = (e.currentTarget as HTMLElement).getAttribute('data-year-part');
+
         if (conditionId) {
-          const newValue = (e.target as HTMLInputElement | HTMLSelectElement).value;
-          this.updateFilterCondition(conditionId, { value: newValue || null });
+          // 处理年份区间的特殊情况
+          if (yearPart) {
+            const condition = this.tempFilterConditions.find(c => c.id === conditionId);
+            if (condition) {
+              const currentValue = condition.value ? String(condition.value).split(',') : ['', ''];
+              const newYear = (e.target as HTMLSelectElement).value;
+
+              if (yearPart === 'start') {
+                currentValue[0] = newYear;
+              } else {
+                currentValue[1] = newYear;
+              }
+
+              // 只有当两个值都有时才更新
+              if (currentValue[0] && currentValue[1]) {
+                this.updateFilterCondition(conditionId, { value: currentValue.join(',') });
+              }
+            }
+          } else {
+            const newValue = (e.target as HTMLInputElement | HTMLSelectElement).value;
+            this.updateFilterCondition(conditionId, { value: newValue || null });
+          }
         }
       });
     });
@@ -3409,7 +3503,19 @@ class CoverImagePickerModal extends Modal {
       const inputEl = document.createElement('input');
       inputEl.type = 'file';
       inputEl.accept = 'image/*';
-      
+      // iOS 兼容：使用 position 隐藏而非 display:none，确保 input 可交互
+      inputEl.style.position = 'absolute';
+      inputEl.style.left = '-9999px';
+      inputEl.style.top = '0';
+      inputEl.style.opacity = '0';
+      document.body.appendChild(inputEl);
+
+      const cleanup = () => {
+        if (document.body.contains(inputEl)) {
+          document.body.removeChild(inputEl);
+        }
+      };
+
       inputEl.onchange = async () => {
         const file = inputEl.files?.[0];
         if (file) {
@@ -3417,16 +3523,16 @@ class CoverImagePickerModal extends Modal {
             // 使用用户配置的封面图目录
             const coversPath = this.plugin.getSettings().coverPath;
             await this.plugin.app.vault.createFolder(coversPath).catch(() => {});
-            
+
             // 生成安全的文件名
             const fileExt = file.name.split('.').pop() || 'png';
             const fileName = `${this.goalId}_${Date.now()}.${fileExt}`;
             const targetPath = `${coversPath}/${fileName}`;
-            
+
             // 将文件保存为 vault 中的文件（二进制）
             const arrayBuffer = await file.arrayBuffer();
             await this.plugin.app.vault.createBinary(targetPath, arrayBuffer);
-            
+
             // 获取保存后的文件对象，用于生成 resource URL
             const savedFile = this.plugin.app.vault.getAbstractFileByPath(targetPath);
             if (savedFile instanceof TFile) {
@@ -3441,9 +3547,20 @@ class CoverImagePickerModal extends Modal {
             new Notice('上传图片失败: ' + (error as Error).message);
           }
         }
+        cleanup();
       };
-      
-      inputEl.click();
+
+      // iOS 兼容：使用 setTimeout 延迟调用 click，确保在用户手势事件之后执行
+      setTimeout(() => {
+        inputEl.click();
+      }, 0);
+
+      // 处理取消选择的情况
+      const handleCancel = () => {
+        cleanup();
+        window.removeEventListener('focus', handleCancel);
+      };
+      window.addEventListener('focus', handleCancel, { once: true });
     });
     
     // 按钮区域

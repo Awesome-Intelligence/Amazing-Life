@@ -103,10 +103,10 @@ export interface ViewFieldsConfig {
 }
 
 // 筛选操作符类型
-export type FilterOperator = 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'starts_with' | 'ends_with' | 'greater_than' | 'less_than' | 'greater_or_equal' | 'less_or_equal' | 'is_empty' | 'is_not_empty' | 'is_null' | 'is_not_null';
+export type FilterOperator = 'equals' | 'not_equals' | 'contains' | 'not_contains' | 'starts_with' | 'ends_with' | 'greater_than' | 'less_than' | 'greater_or_equal' | 'less_or_equal' | 'is_empty' | 'is_not_empty' | 'is_null' | 'is_not_null' | 'year_equals' | 'year_not_equals' | 'year_before' | 'year_after' | 'year_between';
 
 // 字段类型
-export type FilterFieldType = 'string' | 'number' | 'select' | 'date' | 'array';
+export type FilterFieldType = 'string' | 'number' | 'select' | 'date' | 'array' | 'year';
 
 // 筛选字段定义
 export interface FilterFieldDef {
@@ -144,7 +144,12 @@ export const FILTER_OPERATOR_LABELS: Record<FilterOperator, string> = {
   'is_empty': '为空',
   'is_not_empty': '不为空',
   'is_null': '是null',
-  'is_not_null': '不是null'
+  'is_not_null': '不是null',
+  'year_equals': '年份等于',
+  'year_not_equals': '年份不等于',
+  'year_before': '年份早于',
+  'year_after': '年份晚于',
+  'year_between': '年份区间'
 };
 
 // 目标筛选字段定义
@@ -167,6 +172,9 @@ export const GOAL_FILTER_FIELDS: FilterFieldDef[] = [
   { field: 'A-start', label: '开始日期', type: 'date' },
   { field: 'A-created', label: '创建时间', type: 'date' },
   { field: 'A-updated', label: '更新时间', type: 'date' },
+  { field: 'A-due-year', label: '截止年份', type: 'year' },
+  { field: 'A-start-year', label: '开始年份', type: 'year' },
+  { field: 'A-created-year', label: '创建年份', type: 'year' },
   { field: 'A-parent', label: '父目标', type: 'string' }
 ];
 
