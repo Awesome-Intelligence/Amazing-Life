@@ -1,19 +1,19 @@
 /**
- * Dashboard View - Modals & Inline Edit Helpers
+ * Dashboard View - Modals
  *
- * 从 DashboardView.ts 抽出的弹窗与字段内联编辑逻辑：
- * - 字段设置弹窗（showFieldSettingsModal）
- * - 添加视图下拉菜单（showAddViewDropdown）
- * - 目标删除/父目标选择弹窗
- * - 目标/任务创建弹窗
- * - 任务详情弹窗
- * - 字段内联编辑（startFieldEdit / startCustomFieldEdit）
- * - 自定义字段添加弹窗
+ * 使用 Obsidian 原生 Modal 类实现的弹窗：
+ * - FieldSettingsModal：字段设置弹窗
+ * - DeleteGoalWithChildrenModal：删除目标（含子目标）弹窗
+ * - ParentSelectorModal：选择上级目标弹窗
+ * - CreateGoalModal：创建目标弹窗
+ * - TaskDetailModal：任务详情弹窗
+ * - CreateTaskModal：创建任务弹窗
+ * - AddCustomFieldModal：添加自定义字段弹窗
  *
- * 通过组合方式持有 DashboardView 实例引用，访问共享状态。
+ * 字段内联编辑保持不变（不是弹窗）。
  */
 
-import { Notice, Menu } from 'obsidian';
+import { Modal, Notice, Menu } from 'obsidian';
 import type { DashboardView } from './DashboardView';
 import {
   Goal,
@@ -31,113 +31,7 @@ import {
 export class ViewModals {
   constructor(private view: DashboardView) {}
 
-  showFieldSettingsModal(): void {
-    const view = this.view;
-    const viewKey = view.getCurrentViewType();
-    const isGoalView = viewKey === 'gallery' || viewKey === 'goal' || viewKey === 'board' || viewKey === 'list';
-    const settings = view.plugin.getSettings();
-    const currentFields = isGoalView
-      ? (settings.viewFields[viewKey as 'gallery' | 'goal' | 'board' | 'list'] as GoalField[])
-      : (settings.viewFields[viewKey as 'dashboard'] as TaskField[]);
-
-    const fieldLabels = isGoalView ? GOAL_FIELD_LABELS : TASK_FIELD_LABELS;
-    // 目标视图排除 title 字段（标题始终显示）
-    const fields = Object.keys(fieldLabels).filter(f => !(isGoalView && f === 'title')) as (GoalField | TaskField)[];
-    const viewNames: Record<string, string> = { dashboard: '仪表盘任务', board: '看板目标', list: '列表目标', gallery: '画廊目标', goal: '目标详情' };
-
-    // 获取可用的自定义字段（仅目标视图）
-    const customFields = isGoalView
-      ? settings.customGoalFields.filter(f => f.showInViews.includes(viewKey))
-      : [];
-
-    const modal = document.createElement('div');
-    modal.className = 'al-modal';
-
-    const fieldsHtml = fields.map(field => {
-      const isSelected = currentFields.includes(field as any);
-      return `<button class="al-field-toggle-btn ${isSelected ? 'selected' : ''}" data-field="${field}">${fieldLabels[field as keyof typeof fieldLabels]}</button>`;
-    }).join('');
-
-    // 自定义字段按钮
-    const customFieldsHtml = customFields.map(cf => {
-      const fieldKey = `custom_${cf.key}`;
-      const isSelected = currentFields.includes(fieldKey as any);
-      return `<button class="al-field-toggle-btn al-custom-field-btn ${isSelected ? 'selected' : ''}" data-field="${fieldKey}">${cf.label}</button>`;
-    }).join('');
-
-    const customFieldsSection = customFields.length > 0
-      ? `<p class="al-field-settings-desc" style="margin-top:12px">自定义字段：</p>
-         <div class="al-field-toggles">${customFieldsHtml}</div>`
-      : '';
-
-    modal.innerHTML = `
-      <div class="al-modal-bg"></div>
-      <div class="al-modal-box al-field-settings-modal">
-        <div class="al-modal-header">
-          <span>⚙️ 字段设置 - ${viewNames[viewKey]}</span>
-          <button class="al-modal-close">×</button>
-        </div>
-        <div class="al-modal-body">
-          <p class="al-field-settings-desc">选择在此视图中显示的字段：</p>
-          <div class="al-field-toggles">${fieldsHtml}</div>
-          ${customFieldsSection}
-        </div>
-        <div class="al-modal-footer">
-          <button class="al-btn" id="al-reset-fields">恢复默认</button>
-          <button class="mod-cta" id="al-save-fields">保存</button>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(modal);
-
-    const close = () => modal.remove();
-    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
-    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
-
-    // Field toggle clicks
-    modal.querySelectorAll('.al-field-toggle-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        const field = btn.getAttribute('data-field')!;
-        const idx = currentFields.indexOf(field as any);
-        if (idx >= 0 && currentFields.length > 1) {
-          currentFields.splice(idx, 1);
-          btn.classList.remove('selected');
-        } else if (idx < 0) {
-          currentFields.push(field as any);
-          btn.classList.add('selected');
-        }
-      });
-    });
-
-    // Reset button
-    modal.querySelector('#al-reset-fields')?.addEventListener('click', () => {
-      const defaults = DEFAULT_VIEW_FIELDS[viewKey as keyof typeof DEFAULT_VIEW_FIELDS];
-      currentFields.length = 0;
-      currentFields.push(...defaults as any);
-      modal.querySelectorAll('.al-field-toggle-btn').forEach(btn => {
-        const field = btn.getAttribute('data-field')!;
-        if (currentFields.includes(field as any)) {
-          btn.classList.add('selected');
-        } else {
-          btn.classList.remove('selected');
-        }
-      });
-    });
-
-    // Save button
-    modal.querySelector('#al-save-fields')?.addEventListener('click', async () => {
-      settings.viewFields[viewKey as keyof typeof settings.viewFields] = [...currentFields] as any;
-      await view.plugin.saveData(settings);
-      // 刷新插件设置缓存
-      view.plugin.getSettings().viewFields = settings.viewFields;
-      new Notice('字段设置已保存');
-      close();
-      view.render();
-    });
-  }
-
-  // 显示添加视图菜单 - 使用 Obsidian 原生 Menu，与目标详情页省略号菜单风格一致
+  // 显示添加视图菜单 - 使用 Obsidian 原生 Menu
   showAddViewDropdown(e: MouseEvent): void {
     const view = this.view;
     const addBtn = e.currentTarget as HTMLElement;
@@ -173,315 +67,52 @@ export class ViewModals {
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
 
+  // ========== 字段设置弹窗 ==========
+  showFieldSettingsModal(): void {
+    new FieldSettingsModal(this.view).open();
+  }
+
+  // ========== 删除目标弹窗 ==========
   showDeleteGoalWithChildrenModal(goal: Goal, subGoals: Goal[]): void {
-    const view = this.view;
-    const modal = document.createElement('div');
-    modal.className = 'al-modal';
-    modal.innerHTML = `
-      <div class="al-modal-bg"></div>
-      <div class="al-modal-box" style="max-width:420px;">
-        <div class="al-modal-header">
-          <span>⚠️ 删除目标</span>
-          <button class="al-modal-close">&times;</button>
-        </div>
-        <div style="padding:20px;">
-          <p style="margin:0 0 16px;font-size:14px;color:var(--text-primary);">
-            目标「<strong>${goal['A-title']}</strong>」有 <strong>${subGoals.length}</strong> 个子目标，请选择删除方式：
-          </p>
-          <div style="display:flex;flex-direction:column;gap:10px;">
-            <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;" class="al-delete-option">
-              <input type="radio" name="delete-mode" value="cascade" checked style="margin-top:3px;">
-              <div>
-                <div style="font-size:14px;font-weight:500;color:var(--text-primary);">级联删除</div>
-                <div style="font-size:12px;color:var(--text-muted);">同时删除所有子目标</div>
-              </div>
-            </label>
-            <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;" class="al-delete-option">
-              <input type="radio" name="delete-mode" value="promote" style="margin-top:3px;">
-              <div>
-                <div style="font-size:14px;font-weight:500;color:var(--text-primary);">提升子目标</div>
-                <div style="font-size:12px;color:var(--text-muted);">将子目标提升为顶级目标后再删除</div>
-              </div>
-            </label>
-            <label style="display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;" class="al-delete-option">
-              <input type="radio" name="delete-mode" value="cancel" style="margin-top:3px;">
-              <div>
-                <div style="font-size:14px;font-weight:500;color:var(--text-primary);">取消</div>
-                <div style="font-size:12px;color:var(--text-muted);">不删除目标</div>
-              </div>
-            </label>
-          </div>
-        </div>
-        <div class="al-modal-footer">
-          <button class="mod-cta" id="al-confirm-delete-with-children" style="padding:8px 16px;border:none;border-radius:6px;background:var(--text-red);color:#fff;cursor:pointer;">确认删除</button>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(modal);
-
-    const close = () => modal.remove();
-    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
-    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
-
-    // 选中样式
-    modal.querySelectorAll('.al-delete-option').forEach(option => {
-      option.addEventListener('click', () => {
-        modal.querySelectorAll('.al-delete-option').forEach(o => (o as HTMLElement).style.borderColor = 'var(--border-color)');
-        (option as HTMLElement).style.borderColor = 'var(--interactive-accent)';
-      });
-    });
-
-    modal.querySelector('#al-confirm-delete-with-children')?.addEventListener('click', async () => {
-      const selectedMode = (modal.querySelector('input[name="delete-mode"]:checked') as HTMLInputElement)?.value;
-
-      if (selectedMode === 'cancel') {
-        close();
-        return;
-      }
-
-      try {
-        if (selectedMode === 'promote') {
-          // 提升子目标：移除所有子目标的父目标引用
-          for (const subGoal of subGoals) {
-            await view.plugin.getGoalManager().updateGoal(subGoal['A-id'], { parent: null });
-          }
-        }
-        // 删除目标
-        await view.plugin.getGoalManager().deleteGoal(goal['A-id']);
-        new Notice('目标已删除');
-        close();
-        view.goBack();
-      } catch (error) {
-        new Notice('删除失败: ' + (error as Error).message);
-      }
-    });
+    new DeleteGoalWithChildrenModal(this.view, goal, subGoals).open();
   }
 
+  // ========== 选择上级目标弹窗 ==========
   showParentSelectorModal(): void {
-    const view = this.view;
-    if (!view.selectedGoalId) return;
-
-    const currentGoal = view.getGoal(view.selectedGoalId);
-    if (!currentGoal) return;
-
-    const allGoals = view.plugin.getGoalManager().getAllGoals();
-    // 排除自己和自己的子目标（防止循环引用）
-    const descendants = view.plugin.getGoalManager().getDescendants(view.selectedGoalId);
-    const excludeIds = new Set([view.selectedGoalId, ...descendants.map(g => g['A-id'])]);
-
-    const levelNames: Record<number, string> = { 1: '🏆', 2: '📅', 3: '📆', 4: '⚡' };
-
-    const availableGoals = allGoals.filter(g => !excludeIds.has(g['A-id']));
-
-    const goalOptions = availableGoals.map(goal => {
-      const selected = goal['A-id'] === currentGoal['A-parent'] ? 'selected' : '';
-      return `<option value="${goal['A-id']}" ${selected}>${levelNames[goal['A-level']]} ${goal['A-title']}</option>`;
-    }).join('');
-
-    const modal = document.createElement('div');
-    modal.className = 'al-modal';
-    modal.innerHTML = `
-      <div class="al-modal-bg"></div>
-      <div class="al-modal-box" style="max-width:400px;">
-        <div class="al-modal-header">
-          <span>选择上级目标</span>
-          <button class="al-modal-close">&times;</button>
-        </div>
-        <div style="padding:20px;">
-          <div class="al-form-item">
-            <label>上级目标</label>
-            <select id="al-parent-select" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;">
-              <option value="">无（顶级目标）</option>
-              ${goalOptions}
-            </select>
-          </div>
-          <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px;">提示：不能选择自己或子目标作为上级目标</p>
-        </div>
-        <div class="al-modal-footer">
-          <button class="al-btn-secondary" id="al-parent-cancel" style="padding:8px 16px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-secondary);cursor:pointer;">取消</button>
-          <button class="mod-cta" id="al-parent-save" style="padding:8px 16px;border:none;border-radius:6px;background:var(--interactive-accent);color:#fff;cursor:pointer;">保存</button>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(modal);
-
-    const close = () => modal.remove();
-    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
-    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
-    modal.querySelector('#al-parent-cancel')?.addEventListener('click', close);
-
-    modal.querySelector('#al-parent-save')?.addEventListener('click', async () => {
-      const parentId = (modal.querySelector('#al-parent-select') as HTMLSelectElement).value || null;
-
-      try {
-        await view.plugin.getGoalManager().updateGoal(view.selectedGoalId!, { parent: parentId });
-        new Notice(parentId ? '已设置上级目标' : '已移除上级目标');
-        close();
-        view.loadAndRender();
-      } catch (error) {
-        new Notice('设置失败: ' + (error as Error).message);
-      }
-    });
+    new ParentSelectorModal(this.view).open();
   }
 
+  // ========== 创建目标弹窗 ==========
   showCreateGoalModal(prefill?: { level?: number; status?: string; parent?: string }): void {
-    const view = this.view;
-    const levelOptions = [1, 2, 3, 4].map(level => {
-      const labels: Record<number, string> = { 1: '🏆 人生目标', 2: '📅 阶段目标', 3: '📆 年度目标', 4: '⚡ 短期目标' };
-      const selected = prefill?.level === level ? 'selected' : (level === 3 && !prefill?.level ? 'selected' : '');
-      return `<option value="${level}" ${selected}>${labels[level]}</option>`;
-    }).join('');
-
-    // 获取可选的父目标列表
-    const allGoals = view.plugin.getGoalManager().getAllGoals();
-    const levelNames: Record<number, string> = { 1: '🏆', 2: '📅', 3: '📆', 4: '⚡' };
-    const parentOptions = allGoals.map(goal => {
-      const selected = prefill?.parent === goal['A-id'] ? 'selected' : '';
-      return `<option value="${goal['A-id']}" ${selected}>${levelNames[goal['A-level']]} ${goal['A-title']}</option>`;
-    }).join('');
-
-    const modal = document.createElement('div');
-    modal.className = 'al-modal';
-    modal.innerHTML = `<div class="al-modal-bg"></div><div class="al-modal-box"><div class="al-modal-header"><span>🎯 创建目标</span><button class="al-modal-close">×</button></div><form id="al-goal-form"><div class="al-form-item"><label>目标名称</label><input type="text" id="al-goal-title" required placeholder="例如：学习一门新语言"></div><div class="al-form-item"><label>目标层级</label><select id="al-goal-level">${levelOptions}</select></div><div class="al-form-item"><label>上级目标（可选）</label><select id="al-goal-parent"><option value="">无</option>${parentOptions}</select></div><div class="al-form-item"><label>截止日期</label><input type="date" id="al-goal-due"></div><div class="al-form-actions"><button type="button" id="al-cancel-goal">取消</button><button type="submit" class="mod-cta">创建</button></div></form></div>`;
-    document.body.appendChild(modal);
-    const close = () => modal.remove();
-    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
-    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
-    modal.querySelector('#al-cancel-goal')?.addEventListener('click', close);
-    modal.querySelector('#al-goal-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const title = (modal.querySelector('#al-goal-title') as HTMLInputElement).value.trim(); const level = Number((modal.querySelector('#al-goal-level') as HTMLSelectElement).value) as GoalLevel; const parent = (modal.querySelector('#al-goal-parent') as HTMLSelectElement).value || null; const due = (modal.querySelector('#al-goal-due') as HTMLInputElement).value || null; if (!title) { new Notice('请输入目标名称'); return; } try { await view.plugin.getGoalManager().createGoal({ title, level, due, parent }); new Notice('目标创建成功！'); close(); view.loadAndRender(); } catch (error) { new Notice('创建失败: ' + (error as Error).message); } });
-
-    // 自动聚焦到标题输入框
-    setTimeout(() => (modal.querySelector('#al-goal-title') as HTMLInputElement)?.focus(), 100);
+    new CreateGoalModal(this.view, prefill).open();
   }
 
+  // ========== 任务详情弹窗 ==========
   showTaskDetailModal(taskId: string): void {
-    const view = this.view;
-    const task = view.getTask(taskId);
-    if (!task) { new Notice('任务不存在'); return; }
-
-    const allGoals = view.plugin.getGoalManager().getAllGoals();
-    const goalOptions = allGoals.map(goal => `<option value="${goal['A-id']}" ${goal['A-id'] === task['A-goal'] ? 'selected' : ''}>${goal['A-title']}</option>`).join('');
-    const priorityOptions = [1, 2, 3, 4, 5].map(p => `<option value="${p}" ${p === task['A-priority'] ? 'selected' : ''}>${['🔴 最高', '🟠 高', '🟡 中', '🟢 低', '⚪ 最低'][p - 1]}</option>`).join('');
-    const statusOptions = ['pending', 'in-progress', 'completed', 'cancelled'].map(s => `<option value="${s}" ${s === task['A-status'] ? 'selected' : ''}>${['待办', '进行中', '已完成', '已取消'][['pending', 'in-progress', 'completed', 'cancelled'].indexOf(s)]}</option>`).join('');
-
-    const modal = document.createElement('div');
-    modal.className = 'al-modal';
-    modal.innerHTML = `
-      <div class="al-modal-bg"></div>
-      <div class="al-modal-box al-modal-task-detail">
-        <div class="al-modal-header">
-          <span>📋 任务详情</span>
-          <button class="al-modal-close">×</button>
-        </div>
-        <div class="al-modal-body">
-          <div class="al-task-detail-title">
-            <input type="text" id="al-task-detail-title" value="${task['A-title']}" placeholder="任务名称">
-          </div>
-          <div class="al-task-detail-fields">
-            <div class="al-task-detail-field">
-              <label>📊 状态</label>
-              <select id="al-task-detail-status">${statusOptions}</select>
-            </div>
-            <div class="al-task-detail-field">
-              <label>⭐ 优先级</label>
-              <select id="al-task-detail-priority">${priorityOptions}</select>
-            </div>
-            <div class="al-task-detail-field">
-              <label>📅 开始时间</label>
-              <input type="date" id="al-task-detail-start" value="${task['A-start'] || ''}">
-            </div>
-            <div class="al-task-detail-field">
-              <label>⏰ 截止时间</label>
-              <input type="date" id="al-task-detail-due" value="${task['A-due'] || ''}">
-            </div>
-            <div class="al-task-detail-field">
-              <label>🎯 关联目标</label>
-              <select id="al-task-detail-goal"><option value="">无</option>${goalOptions}</select>
-            </div>
-          </div>
-          <div class="al-task-detail-desc-section">
-            <label>📝 任务描述</label>
-            <textarea id="al-task-detail-description" placeholder="添加任务描述...">${task['A-description'] || ''}</textarea>
-          </div>
-        </div>
-        <div class="al-modal-footer">
-          <button type="button" class="al-btn-danger" id="al-task-detail-delete">🗑️ 删除</button>
-          <button type="button" class="al-btn-secondary" id="al-task-detail-cancel">取消</button>
-          <button type="button" class="mod-cta" id="al-task-detail-save">💾 保存</button>
-        </div>
-      </div>
-    `;
-
-    document.body.appendChild(modal);
-
-    const close = () => modal.remove();
-
-    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
-    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
-    modal.querySelector('#al-task-detail-cancel')?.addEventListener('click', close);
-
-    modal.querySelector('#al-task-detail-delete')?.addEventListener('click', async () => {
-      if (confirm('确定要删除这个任务吗？')) {
-        try {
-          await view.plugin.getTaskManager().deleteTask(taskId);
-          new Notice('任务已删除');
-          close();
-          view.loadAndRender();
-        } catch (error) {
-          new Notice('删除失败: ' + (error as Error).message);
-        }
-      }
-    });
-
-    modal.querySelector('#al-task-detail-save')?.addEventListener('click', async () => {
-      const title = (modal.querySelector('#al-task-detail-title') as HTMLInputElement).value.trim();
-      const status = (modal.querySelector('#al-task-detail-status') as HTMLSelectElement).value as TaskStatus;
-      const priority = Number((modal.querySelector('#al-task-detail-priority') as HTMLSelectElement).value) as TaskPriority;
-      const start = (modal.querySelector('#al-task-detail-start') as HTMLInputElement).value || null;
-      const due = (modal.querySelector('#al-task-detail-due') as HTMLInputElement).value || null;
-      const goal = (modal.querySelector('#al-task-detail-goal') as HTMLSelectElement).value || null;
-      const description = (modal.querySelector('#al-task-detail-description') as HTMLTextAreaElement).value.trim() || null;
-
-      if (!title) { new Notice('请输入任务名称'); return; }
-
-      try {
-        await view.plugin.getTaskManager().updateTask(taskId, { title, status, priority, start, due, goal, description });
-        new Notice('任务已保存');
-        close();
-        view.loadAndRender();
-      } catch (error) {
-        new Notice('保存失败: ' + (error as Error).message);
-      }
-    });
+    new TaskDetailModal(this.view, taskId).open();
   }
 
+  // ========== 创建任务弹窗 ==========
   showCreateTaskModal(): void {
-    const view = this.view;
-    const allGoals = view.plugin.getGoalManager().getAllGoals();
-    if (allGoals.length === 0) { new Notice('请先创建目标，再添加任务'); this.showCreateGoalModal(); return; }
+    const allGoals = this.view.plugin.getGoalManager().getAllGoals();
+    if (allGoals.length === 0) {
+      new Notice('请先创建目标，再添加任务');
+      this.showCreateGoalModal();
+      return;
+    }
     this.showCreateTaskModalForGoal(null);
   }
 
   showCreateTaskModalForGoal(goalId: string | null): void {
-    const view = this.view;
-    const allGoals = view.plugin.getGoalManager().getAllGoals();
-    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const goalsByLevel: Record<number, Goal[]> = { 1: [], 2: [], 3: [], 4: [] };
-    allGoals.forEach(goal => goalsByLevel[goal['A-level']].push(goal));
-    const goalOptions = [1, 2, 3, 4].filter(level => goalsByLevel[level].length > 0).map(level => `<optgroup label="${levelNames[level]}">${goalsByLevel[level].map(goal => `<option value="${goal['A-id']}" ${goal['A-id'] === goalId ? 'selected' : ''}>${goal['A-title']}</option>`).join('')}</optgroup>`).join('');
-    const modal = document.createElement('div');
-    modal.className = 'al-modal';
-    modal.innerHTML = `<div class="al-modal-bg"></div><div class="al-modal-box"><div class="al-modal-header"><span>📋 创建任务</span><button class="al-modal-close">×</button></div><form id="al-task-form"><div class="al-form-item"><label>任务名称</label><input type="text" id="al-task-title" required placeholder="例如：完成项目报告"></div><div class="al-form-item"><label>关联目标 *</label><select id="al-task-goal" required><option value="">请选择目标...</option>${goalOptions}</select></div><div class="al-form-item"><label>优先级</label><select id="al-task-priority"><option value="1">🔴 最高</option><option value="2">🟠 高</option><option value="3" selected>🟡 中</option><option value="4">🟢 低</option><option value="5">⚪ 最低</option></select></div><div class="al-form-item"><label>截止日期</label><input type="date" id="al-task-due" value="${new Date().toISOString().split('T')[0]}"></div><div class="al-form-actions"><button type="button" id="al-cancel-task">取消</button><button type="submit" class="mod-cta">创建</button></div></form></div>`;
-    document.body.appendChild(modal);
-    const close = () => modal.remove();
-    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
-    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
-    modal.querySelector('#al-cancel-task')?.addEventListener('click', close);
-    modal.querySelector('#al-task-form')?.addEventListener('submit', async (e) => { e.preventDefault(); const title = (modal.querySelector('#al-task-title') as HTMLInputElement).value.trim(); const selectedGoalId = (modal.querySelector('#al-task-goal') as HTMLSelectElement).value; const priority = Number((modal.querySelector('#al-task-priority') as HTMLSelectElement).value) as TaskPriority; const due = (modal.querySelector('#al-task-due') as HTMLInputElement).value || null; if (!title) { new Notice('请输入任务名称'); return; } if (!selectedGoalId) { new Notice('请选择关联目标'); return; } try { await view.plugin.getTaskManager().createTask({ title, priority, due, goal: selectedGoalId }); new Notice('任务创建成功！'); close(); view.loadAndRender(); } catch (error) { new Notice('创建失败: ' + (error as Error).message); } });
+    new CreateTaskModal(this.view, goalId).open();
   }
 
+  // ========== 添加自定义字段弹窗 ==========
+  showAddCustomFieldModal(): void {
+    new AddCustomFieldModal(this.view).open();
+  }
+
+  // ========== 字段内联编辑（保持不变） ==========
   startFieldEdit(row: HTMLElement, field: string, fieldType: string, currentValue: string): void {
     const view = this.view;
     const editableEl = row.querySelector('.al-field-editable');
@@ -576,7 +207,6 @@ export class ViewModals {
     inputEl.focus();
   }
 
-  // 自定义字段编辑
   startCustomFieldEdit(element: HTMLElement, fieldKey: string, fieldType: string, currentValue: any): void {
     const view = this.view;
     const valueSpan = element.querySelector('.al-custom-field-value');
@@ -584,7 +214,6 @@ export class ViewModals {
 
     const currentText = currentValue !== undefined && currentValue !== null && currentValue !== '' ? String(currentValue) : '';
 
-    // 获取字段配置以获取选项
     const settings = view.plugin.getSettings();
     const fieldConfig = settings.customGoalFields?.find(f => f.key === fieldKey);
     const options = fieldConfig?.options?.split(',').map(o => o.trim()) || [];
@@ -653,73 +282,712 @@ export class ViewModals {
       }
     });
   }
+}
 
-  // 添加自定义字段弹窗
-  showAddCustomFieldModal(): void {
-    const view = this.view;
-    const modal = document.createElement('div');
-    modal.className = 'al-modal';
-    modal.innerHTML = `
-      <div class="al-modal-bg"></div>
-      <div class="al-modal-box" style="max-width:400px;">
-        <div class="al-modal-header">
-          <span>添加自定义字段</span>
-          <button class="al-modal-close">&times;</button>
-        </div>
-        <div style="padding:20px;">
-          <div class="al-form-item">
-            <label>字段名称</label>
-            <input type="text" id="al-custom-field-key" placeholder="输入字段名称（如：备注、标签）" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;box-sizing:border-box;">
-          </div>
-          <div class="al-form-item">
-            <label>显示标签</label>
-            <input type="text" id="al-custom-field-label" placeholder="输入显示名称" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;box-sizing:border-box;">
-          </div>
-          <div class="al-form-item">
-            <label>字段类型</label>
-            <select id="al-custom-field-type" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;">
-              <option value="text">文本</option>
-              <option value="number">数字</option>
-              <option value="date">日期</option>
-              <option value="select">单选</option>
-            </select>
-          </div>
-          <div class="al-form-item" id="al-custom-field-options-row" style="display:none;">
-            <label>选项（逗号分隔）</label>
-            <input type="text" id="al-custom-field-options" placeholder="如：重要,普通,紧急" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;box-sizing:border-box;">
-          </div>
-          <div class="al-form-item">
-            <label>字段值（可选）</label>
-            <input type="text" id="al-custom-field-value" placeholder="输入字段值" style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;box-sizing:border-box;">
-          </div>
-        </div>
-        <div class="al-modal-footer">
-          <button class="al-btn-secondary" id="al-custom-field-cancel" style="padding:8px 16px;border:1px solid var(--border-color);border-radius:6px;background:transparent;color:var(--text-secondary);cursor:pointer;">取消</button>
-          <button class="mod-cta" id="al-custom-field-save" style="padding:8px 16px;border:none;border-radius:6px;background:var(--interactive-accent);color:#fff;cursor:pointer;">保存</button>
-        </div>
-      </div>
-    `;
+// ========== Modal 类实现 ==========
 
-    document.body.appendChild(modal);
+/** 字段设置弹窗 */
+class FieldSettingsModal extends Modal {
+  private view: DashboardView;
+  private currentFields: (GoalField | TaskField | string)[];
 
-    const keyInput = modal.querySelector('#al-custom-field-key') as HTMLInputElement;
-    const labelInput = modal.querySelector('#al-custom-field-label') as HTMLInputElement;
-    const typeSelect = modal.querySelector('#al-custom-field-type') as HTMLSelectElement;
-    const optionsRow = modal.querySelector('#al-custom-field-options-row') as HTMLElement;
-    const optionsInput = modal.querySelector('#al-custom-field-options') as HTMLInputElement;
-    const valueInput = modal.querySelector('#al-custom-field-value') as HTMLInputElement;
+  constructor(view: DashboardView) {
+    super(view.plugin.app);
+    this.view = view;
+    const viewKey = view.getCurrentViewType();
+    const isGoalView = viewKey === 'gallery' || viewKey === 'goal' || viewKey === 'board' || viewKey === 'list';
+    const settings = view.plugin.getSettings();
+    this.currentFields = isGoalView
+      ? [...(settings.viewFields[viewKey as 'gallery' | 'goal' | 'board' | 'list'] as GoalField[])]
+      : [...(settings.viewFields[viewKey as 'dashboard'] as TaskField[])];
+  }
 
-    // 类型选择时显示/隐藏选项输入框
+  get viewKey(): string {
+    return this.view.getCurrentViewType();
+  }
+
+  get isGoalView(): boolean {
+    return ['gallery', 'goal', 'board', 'list'].includes(this.viewKey);
+  }
+
+  get fieldLabels(): Record<string, string> {
+    return this.isGoalView ? GOAL_FIELD_LABELS : TASK_FIELD_LABELS;
+  }
+
+  get viewNames(): Record<string, string> {
+    return { dashboard: '仪表盘任务', board: '看板目标', list: '列表目标', gallery: '画廊目标', goal: '目标详情' };
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    const viewNames = this.viewNames;
+    const viewKey = this.viewKey;
+
+    contentEl.createEl('h2', { text: `字段设置 - ${viewNames[viewKey]}`, cls: 'al-modal-header' });
+
+    const desc = contentEl.createEl('p', { text: '选择在此视图中显示的字段：', cls: 'al-field-settings-desc' });
+
+    const togglesContainer = contentEl.createDiv('al-field-toggles');
+    const fieldLabels = this.fieldLabels;
+    const fields = Object.keys(fieldLabels).filter(f => !(this.isGoalView && f === 'title'));
+
+    // 标准字段按钮
+    fields.forEach(field => {
+      const isSelected = this.currentFields.includes(field);
+      const btn = togglesContainer.createEl('button', {
+        text: fieldLabels[field as keyof typeof fieldLabels],
+        cls: `al-field-toggle-btn ${isSelected ? 'selected' : ''}`,
+        attr: { 'data-field': field }
+      });
+      btn.addEventListener('click', () => this.toggleField(field, btn));
+    });
+
+    // 自定义字段按钮
+    const settings = this.view.plugin.getSettings();
+    const customFields = this.isGoalView
+      ? settings.customGoalFields.filter(f => f.showInViews.includes(viewKey))
+      : [];
+
+    if (customFields.length > 0) {
+      contentEl.createEl('p', { text: '自定义字段：', cls: 'al-field-settings-desc', attr: { style: 'margin-top:12px' } });
+      const customTogglesContainer = contentEl.createDiv('al-field-toggles');
+
+      customFields.forEach(cf => {
+        const fieldKey = `custom_${cf.key}`;
+        const isSelected = this.currentFields.includes(fieldKey);
+        const btn = customTogglesContainer.createEl('button', {
+          text: cf.label,
+          cls: `al-field-toggle-btn al-custom-field-btn ${isSelected ? 'selected' : ''}`,
+          attr: { 'data-field': fieldKey }
+        });
+        btn.addEventListener('click', () => this.toggleField(fieldKey, btn));
+      });
+    }
+
+    // 按钮区域
+    const footer = contentEl.createDiv('al-modal-footer');
+    const resetBtn = footer.createEl('button', { text: '恢复默认', cls: 'al-btn' });
+    const saveBtn = footer.createEl('button', { text: '保存', cls: 'mod-cta' });
+
+    resetBtn.addEventListener('click', () => this.resetFields());
+    saveBtn.addEventListener('click', () => this.save());
+  }
+
+  private toggleField(field: string, btn: HTMLElement): void {
+    const idx = this.currentFields.indexOf(field);
+    if (idx >= 0 && this.currentFields.length > 1) {
+      this.currentFields.splice(idx, 1);
+      btn.classList.remove('selected');
+    } else if (idx < 0) {
+      this.currentFields.push(field);
+      btn.classList.add('selected');
+    }
+  }
+
+  private resetFields(): void {
+    const defaults = DEFAULT_VIEW_FIELDS[this.viewKey as keyof typeof DEFAULT_VIEW_FIELDS] as (GoalField | TaskField)[];
+    this.currentFields = [...defaults];
+    document.querySelectorAll('.al-field-toggle-btn').forEach(btn => {
+      const field = (btn as HTMLElement).getAttribute('data-field')!;
+      if (this.currentFields.includes(field as any)) {
+        btn.classList.add('selected');
+      } else {
+        btn.classList.remove('selected');
+      }
+    });
+  }
+
+  private async save(): Promise<void> {
+    const settings = this.view.plugin.getSettings();
+    settings.viewFields[this.viewKey as keyof typeof settings.viewFields] = this.currentFields as any;
+    await this.view.plugin.saveData(settings);
+    this.view.plugin.getSettings().viewFields = settings.viewFields;
+    new Notice('字段设置已保存');
+    this.close();
+    this.view.render();
+  }
+}
+
+/** 删除目标（含子目标）弹窗 */
+class DeleteGoalWithChildrenModal extends Modal {
+  private view: DashboardView;
+  private goal: Goal;
+  private subGoals: Goal[];
+
+  constructor(view: DashboardView, goal: Goal, subGoals: Goal[]) {
+    super(view.plugin.app);
+    this.view = view;
+    this.goal = goal;
+    this.subGoals = subGoals;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl('h2', { text: '删除目标', cls: 'al-modal-header' });
+
+    const body = contentEl.createDiv();
+    body.style.padding = '20px';
+
+    body.createEl('p', {
+      text: `目标「${this.goal['A-title']}」有 ${this.subGoals.length} 个子目标，请选择删除方式：`,
+      attr: { style: 'margin:0 0 16px;font-size:14px;' }
+    });
+
+    const optionsContainer = body.createDiv();
+    optionsContainer.style.display = 'flex';
+    optionsContainer.style.flexDirection = 'column';
+    optionsContainer.style.gap = '10px';
+
+    const options = [
+      { value: 'cascade', label: '级联删除', desc: '同时删除所有子目标' },
+      { value: 'promote', label: '提升子目标', desc: '将子目标提升为顶级目标后再删除' },
+      { value: 'cancel', label: '取消', desc: '不删除目标' }
+    ];
+
+    let selectedMode = 'cascade';
+    options.forEach(opt => {
+      const label = optionsContainer.createEl('label');
+      label.style.cssText = 'display:flex;align-items:flex-start;gap:10px;padding:12px;border:1px solid var(--border-color);border-radius:8px;cursor:pointer;';
+
+      const radio = label.createEl('input');
+      radio.type = 'radio';
+      radio.name = 'delete-mode';
+      radio.value = opt.value;
+      radio.checked = opt.value === 'cascade';
+      radio.style.marginTop = '3px';
+
+      const div = label.createEl('div');
+      div.createEl('div', { text: opt.label, attr: { style: 'font-size:14px;font-weight:500;' } });
+      div.createEl('div', { text: opt.desc, attr: { style: 'font-size:12px;color:var(--text-muted);' } });
+
+      radio.addEventListener('change', () => {
+        selectedMode = opt.value;
+      });
+
+      label.addEventListener('click', () => {
+        radio.checked = true;
+        selectedMode = opt.value;
+      });
+    });
+
+    const footer = contentEl.createDiv('al-modal-footer');
+    const confirmBtn = footer.createEl('button', { text: '确认删除', cls: 'mod-cta' });
+    confirmBtn.style.cssText = 'background:var(--text-red);color:#fff;border:none;';
+
+    confirmBtn.addEventListener('click', async () => {
+      if (selectedMode === 'cancel') {
+        this.close();
+        return;
+      }
+
+      try {
+        if (selectedMode === 'promote') {
+          for (const subGoal of this.subGoals) {
+            await this.view.plugin.getGoalManager().updateGoal(subGoal['A-id'], { parent: null });
+          }
+        }
+        await this.view.plugin.getGoalManager().deleteGoal(this.goal['A-id']);
+        new Notice('目标已删除');
+        this.close();
+        this.view.goBack();
+      } catch (error) {
+        new Notice('删除失败: ' + (error as Error).message);
+      }
+    });
+  }
+}
+
+/** 选择上级目标弹窗 */
+class ParentSelectorModal extends Modal {
+  constructor(private view: DashboardView) {
+    super(view.plugin.app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    if (!this.view.selectedGoalId) {
+      this.close();
+      return;
+    }
+
+    const currentGoal = this.view.getGoal(this.view.selectedGoalId);
+    if (!currentGoal) {
+      this.close();
+      return;
+    }
+
+    contentEl.createEl('h2', { text: '选择上级目标', cls: 'al-modal-header' });
+
+    const body = contentEl.createDiv();
+    body.style.padding = '20px';
+
+    const formItem = body.createDiv('al-form-item');
+    formItem.createEl('label', { text: '上级目标' });
+
+    const select = formItem.createEl('select');
+    select.style.cssText = 'width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;background:var(--background-secondary);color:var(--text-primary);font-size:14px;';
+
+    select.createEl('option', { value: '', text: '无（顶级目标）' });
+
+    const allGoals = this.view.plugin.getGoalManager().getAllGoals();
+    const descendants = this.view.plugin.getGoalManager().getDescendants(this.view.selectedGoalId!);
+    const excludeIds = new Set([this.view.selectedGoalId!, ...descendants.map(g => g['A-id'])]);
+    const levelNames: Record<number, string> = { 1: '🏆', 2: '📅', 3: '📆', 4: '⚡' };
+
+    allGoals.filter(g => !excludeIds.has(g['A-id'])).forEach(goal => {
+      const option = select.createEl('option', {
+        value: goal['A-id'],
+        text: `${levelNames[goal['A-level']]} ${goal['A-title']}`
+      });
+      if (goal['A-id'] === currentGoal['A-parent']) {
+        option.selected = true;
+      }
+    });
+
+    body.createEl('p', {
+      text: '提示：不能选择自己或子目标作为上级目标',
+      attr: { style: 'font-size:12px;color:var(--text-muted);margin:8px 0 0;' }
+    });
+
+    const footer = contentEl.createDiv('al-modal-footer');
+    const cancelBtn = footer.createEl('button', { text: '取消', cls: 'al-btn-secondary' });
+    const saveBtn = footer.createEl('button', { text: '保存', cls: 'mod-cta' });
+
+    cancelBtn.addEventListener('click', () => this.close());
+    saveBtn.addEventListener('click', async () => {
+      const parentId = select.value || null;
+      try {
+        await this.view.plugin.getGoalManager().updateGoal(this.view.selectedGoalId!, { parent: parentId });
+        new Notice(parentId ? '已设置上级目标' : '已移除上级目标');
+        this.close();
+        this.view.loadAndRender();
+      } catch (error) {
+        new Notice('设置失败: ' + (error as Error).message);
+      }
+    });
+  }
+}
+
+/** 创建目标弹窗 */
+class CreateGoalModal extends Modal {
+  private prefill?: { level?: number; status?: string; parent?: string };
+
+  constructor(private view: DashboardView, prefill?: { level?: number; status?: string; parent?: string }) {
+    super(view.plugin.app);
+    this.prefill = prefill;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl('h2', { text: '创建目标', cls: 'al-modal-header' });
+
+    const form = contentEl.createEl('form');
+    form.id = 'al-goal-form';
+    form.style.padding = '20px';
+
+    // 目标名称
+    const titleItem = form.createDiv('al-form-item');
+    titleItem.createEl('label', { text: '目标名称' });
+    const titleInput = titleItem.createEl('input');
+    titleInput.type = 'text';
+    titleInput.required = true;
+    titleInput.placeholder = '例如：学习一门新语言';
+
+    // 目标层级
+    const levelItem = form.createDiv('al-form-item');
+    levelItem.createEl('label', { text: '目标层级' });
+    const levelSelect = levelItem.createEl('select');
+
+    const levelLabels: Record<number, string> = { 1: '🏆 人生目标', 2: '📅 阶段目标', 3: '📆 年度目标', 4: '⚡ 短期目标' };
+    [1, 2, 3, 4].forEach(level => {
+      const option = levelSelect.createEl('option', { value: String(level), text: levelLabels[level] });
+      if (this.prefill?.level === level || (!this.prefill?.level && level === 3)) {
+        option.selected = true;
+      }
+    });
+
+    // 上级目标
+    const parentItem = form.createDiv('al-form-item');
+    parentItem.createEl('label', { text: '上级目标（可选）' });
+    const parentSelect = parentItem.createEl('select');
+
+    parentSelect.createEl('option', { value: '', text: '无' });
+    const allGoals = this.view.plugin.getGoalManager().getAllGoals();
+    const levelNames: Record<number, string> = { 1: '🏆', 2: '📅', 3: '📆', 4: '⚡' };
+    allGoals.forEach(goal => {
+      const option = parentSelect.createEl('option', {
+        value: goal['A-id'],
+        text: `${levelNames[goal['A-level']]} ${goal['A-title']}`
+      });
+      if (this.prefill?.parent === goal['A-id']) {
+        option.selected = true;
+      }
+    });
+
+    // 截止日期
+    const dueItem = form.createDiv('al-form-item');
+    dueItem.createEl('label', { text: '截止日期' });
+    const dueInput = dueItem.createEl('input');
+    dueInput.type = 'date';
+
+    const footer = contentEl.createDiv('al-form-actions');
+    footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;margin-top:24px;';
+    const cancelBtn = footer.createEl('button', { text: '取消', type: 'button', cls: 'al-btn' });
+    const submitBtn = footer.createEl('button', { text: '创建', type: 'submit', cls: 'mod-cta' });
+
+    cancelBtn.addEventListener('click', () => this.close());
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = titleInput.value.trim();
+      const level = Number(levelSelect.value) as GoalLevel;
+      const parent = parentSelect.value || null;
+      const due = dueInput.value || null;
+
+      if (!title) {
+        new Notice('请输入目标名称');
+        return;
+      }
+
+      try {
+        await this.view.plugin.getGoalManager().createGoal({ title, level, due, parent });
+        new Notice('目标创建成功！');
+        this.close();
+        this.view.loadAndRender();
+      } catch (error) {
+        new Notice('创建失败: ' + (error as Error).message);
+      }
+    });
+
+    setTimeout(() => titleInput.focus(), 100);
+  }
+}
+
+/** 任务详情弹窗 */
+class TaskDetailModal extends Modal {
+  private taskId: string;
+
+  constructor(private view: DashboardView, taskId: string) {
+    super(view.plugin.app);
+    this.taskId = taskId;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    const task = this.view.getTask(this.taskId);
+    if (!task) {
+      new Notice('任务不存在');
+      this.close();
+      return;
+    }
+
+    contentEl.createEl('h2', { text: '任务详情', cls: 'al-modal-header' });
+
+    const body = contentEl.createDiv();
+    body.style.padding = '20px';
+
+    // 标题
+    const titleInput = body.createEl('input');
+    titleInput.type = 'text';
+    titleInput.value = task['A-title'];
+    titleInput.style.cssText = 'width:100%;font-size:18px;font-weight:600;border:1px solid var(--border-color);border-radius:6px;padding:12px;box-sizing:border-box;margin-bottom:20px;';
+
+    // 字段区域
+    const fieldsContainer = body.createDiv();
+    fieldsContainer.style.cssText = 'display:flex;flex-direction:column;gap:12px;padding-top:20px;border-top:1px solid var(--border-color);';
+
+    // 状态
+    const statusRow = fieldsContainer.createDiv('al-task-detail-field');
+    statusRow.style.cssText = 'display:flex;align-items:center;gap:12px;';
+    statusRow.createEl('label', { text: '📊 状态', attr: { style: 'width:100px;flex-shrink:0;font-size:14px;color:var(--text-secondary);' } });
+    const statusSelect = statusRow.createEl('select');
+    statusSelect.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;';
+    ['pending', 'in-progress', 'completed', 'cancelled'].forEach((s, i) => {
+      const option = statusSelect.createEl('option', { value: s, text: ['待办', '进行中', '已完成', '已取消'][i] });
+      if (s === task['A-status']) option.selected = true;
+    });
+
+    // 优先级
+    const priorityRow = fieldsContainer.createDiv('al-task-detail-field');
+    priorityRow.style.cssText = 'display:flex;align-items:center;gap:12px;';
+    priorityRow.createEl('label', { text: '⭐ 优先级', attr: { style: 'width:100px;flex-shrink:0;font-size:14px;color:var(--text-secondary);' } });
+    const prioritySelect = priorityRow.createEl('select');
+    prioritySelect.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;';
+    [1, 2, 3, 4, 5].forEach(p => {
+      const option = prioritySelect.createEl('option', { value: String(p), text: ['🔴 最高', '🟠 高', '🟡 中', '🟢 低', '⚪ 最低'][p - 1] });
+      if (p === task['A-priority']) option.selected = true;
+    });
+
+    // 开始时间
+    const startRow = fieldsContainer.createDiv('al-task-detail-field');
+    startRow.style.cssText = 'display:flex;align-items:center;gap:12px;';
+    startRow.createEl('label', { text: '📅 开始时间', attr: { style: 'width:100px;flex-shrink:0;font-size:14px;color:var(--text-secondary);' } });
+    const startInput = startRow.createEl('input');
+    startInput.type = 'date';
+    startInput.value = task['A-start'] || '';
+    startInput.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;';
+
+    // 截止时间
+    const dueRow = fieldsContainer.createDiv('al-task-detail-field');
+    dueRow.style.cssText = 'display:flex;align-items:center;gap:12px;';
+    dueRow.createEl('label', { text: '⏰ 截止时间', attr: { style: 'width:100px;flex-shrink:0;font-size:14px;color:var(--text-secondary);' } });
+    const dueInput = dueRow.createEl('input');
+    dueInput.type = 'date';
+    dueInput.value = task['A-due'] || '';
+    dueInput.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;';
+
+    // 关联目标
+    const goalRow = fieldsContainer.createDiv('al-task-detail-field');
+    goalRow.style.cssText = 'display:flex;align-items:center;gap:12px;';
+    goalRow.createEl('label', { text: '🎯 关联目标', attr: { style: 'width:100px;flex-shrink:0;font-size:14px;color:var(--text-secondary);' } });
+    const goalSelect = goalRow.createEl('select');
+    goalSelect.style.cssText = 'flex:1;padding:8px 12px;border:1px solid var(--border-color);border-radius:6px;';
+    goalSelect.createEl('option', { value: '', text: '无' });
+    const allGoals = this.view.plugin.getGoalManager().getAllGoals();
+    allGoals.forEach(goal => {
+      const option = goalSelect.createEl('option', { value: goal['A-id'], text: goal['A-title'] });
+      if (goal['A-id'] === task['A-goal']) option.selected = true;
+    });
+
+    // 描述
+    const descSection = body.createEl('div');
+    descSection.style.cssText = 'margin-top:20px;padding-top:20px;border-top:1px solid var(--border-color);';
+    descSection.createEl('label', { text: '📝 任务描述', attr: { style: 'display:block;font-size:14px;color:var(--text-secondary);margin-bottom:8px;' } });
+    const descTextarea = descSection.createEl('textarea');
+    descTextarea.value = task['A-description'] || '';
+    descTextarea.placeholder = '添加任务描述...';
+    descTextarea.style.cssText = 'width:100%;min-height:100px;padding:12px;border:1px solid var(--border-color);border-radius:6px;resize:vertical;box-sizing:border-box;';
+
+    // 底部按钮
+    const footer = contentEl.createDiv('al-modal-footer');
+    footer.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-top:1px solid var(--border-color);';
+
+    const deleteBtn = footer.createEl('button', { text: '🗑️ 删除', cls: 'al-btn-danger' });
+    deleteBtn.style.cssText = 'background:transparent;border:1px solid var(--text-red);color:var(--text-red);padding:8px 16px;border-radius:6px;cursor:pointer;';
+
+    const rightBtns = footer.createDiv();
+    rightBtns.style.cssText = 'display:flex;gap:10px;';
+    const cancelBtn = rightBtns.createEl('button', { text: '取消', cls: 'al-btn-secondary' });
+    cancelBtn.style.cssText = 'background:transparent;border:1px solid var(--border-color);color:var(--text-secondary);padding:8px 16px;border-radius:6px;cursor:pointer;';
+    const saveBtn = rightBtns.createEl('button', { text: '💾 保存', cls: 'mod-cta' });
+
+    deleteBtn.addEventListener('click', async () => {
+      if (confirm('确定要删除这个任务吗？')) {
+        try {
+          await this.view.plugin.getTaskManager().deleteTask(this.taskId);
+          new Notice('任务已删除');
+          this.close();
+          this.view.loadAndRender();
+        } catch (error) {
+          new Notice('删除失败: ' + (error as Error).message);
+        }
+      }
+    });
+
+    cancelBtn.addEventListener('click', () => this.close());
+
+    saveBtn.addEventListener('click', async () => {
+      const title = titleInput.value.trim();
+      const status = statusSelect.value as TaskStatus;
+      const priority = Number(prioritySelect.value) as TaskPriority;
+      const start = startInput.value || null;
+      const due = dueInput.value || null;
+      const goal = goalSelect.value || null;
+      const description = descTextarea.value.trim() || null;
+
+      if (!title) {
+        new Notice('请输入任务名称');
+        return;
+      }
+
+      try {
+        await this.view.plugin.getTaskManager().updateTask(this.taskId, { title, status, priority, start, due, goal, description });
+        new Notice('任务已保存');
+        this.close();
+        this.view.loadAndRender();
+      } catch (error) {
+        new Notice('保存失败: ' + (error as Error).message);
+      }
+    });
+  }
+}
+
+/** 创建任务弹窗 */
+class CreateTaskModal extends Modal {
+  private goalId: string | null;
+
+  constructor(private view: DashboardView, goalId: string | null) {
+    super(view.plugin.app);
+    this.goalId = goalId;
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl('h2', { text: '创建任务', cls: 'al-modal-header' });
+
+    const form = contentEl.createEl('form');
+    form.id = 'al-task-form';
+    form.style.padding = '20px';
+
+    // 任务名称
+    const titleItem = form.createDiv('al-form-item');
+    titleItem.createEl('label', { text: '任务名称' });
+    const titleInput = titleItem.createEl('input');
+    titleInput.type = 'text';
+    titleInput.required = true;
+    titleInput.placeholder = '例如：完成项目报告';
+
+    // 关联目标
+    const goalItem = form.createDiv('al-form-item');
+    goalItem.createEl('label', { text: '关联目标 *' });
+    const goalSelect = goalItem.createEl('select');
+    goalSelect.required = true;
+    goalSelect.createEl('option', { value: '', text: '请选择目标...' });
+
+    const allGoals = this.view.plugin.getGoalManager().getAllGoals();
+    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
+    const goalsByLevel: Record<number, Goal[]> = { 1: [], 2: [], 3: [], 4: [] };
+    allGoals.forEach(goal => goalsByLevel[goal['A-level']].push(goal));
+
+    [1, 2, 3, 4].filter(level => goalsByLevel[level].length > 0).forEach(level => {
+      const optgroup = goalSelect.createEl('optgroup');
+      optgroup.label = levelNames[level];
+      goalsByLevel[level].forEach(goal => {
+        const option = optgroup.createEl('option', { value: goal['A-id'], text: goal['A-title'] });
+        if (goal['A-id'] === this.goalId) {
+          option.selected = true;
+        }
+      });
+    });
+
+    // 优先级
+    const priorityItem = form.createDiv('al-form-item');
+    priorityItem.createEl('label', { text: '优先级' });
+    const prioritySelect = priorityItem.createEl('select');
+    [1, 2, 3, 4, 5].forEach(p => {
+      const option = prioritySelect.createEl('option', { value: String(p), text: ['🔴 最高', '🟠 高', '🟡 中 (默认)', '🟢 低', '⚪ 最低'][p - 1] });
+      if (p === 3) option.selected = true;
+    });
+
+    // 截止日期
+    const dueItem = form.createDiv('al-form-item');
+    dueItem.createEl('label', { text: '截止日期' });
+    const dueInput = dueItem.createEl('input');
+    dueInput.type = 'date';
+    dueInput.value = new Date().toISOString().split('T')[0];
+
+    const footer = form.createDiv('al-form-actions');
+    footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;margin-top:24px;';
+    const cancelBtn = footer.createEl('button', { text: '取消', type: 'button', cls: 'al-btn' });
+    const submitBtn = footer.createEl('button', { text: '创建', type: 'submit', cls: 'mod-cta' });
+
+    cancelBtn.addEventListener('click', () => this.close());
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const title = titleInput.value.trim();
+      const selectedGoalId = goalSelect.value;
+      const priority = Number(prioritySelect.value) as TaskPriority;
+      const due = dueInput.value || null;
+
+      if (!title) {
+        new Notice('请输入任务名称');
+        return;
+      }
+      if (!selectedGoalId) {
+        new Notice('请选择关联目标');
+        return;
+      }
+
+      try {
+        await this.view.plugin.getTaskManager().createTask({ title, priority, due, goal: selectedGoalId });
+        new Notice('任务创建成功！');
+        this.close();
+        this.view.loadAndRender();
+      } catch (error) {
+        new Notice('创建失败: ' + (error as Error).message);
+      }
+    });
+
+    setTimeout(() => titleInput.focus(), 100);
+  }
+}
+
+/** 添加自定义字段弹窗 */
+class AddCustomFieldModal extends Modal {
+  constructor(private view: DashboardView) {
+    super(view.plugin.app);
+  }
+
+  onOpen(): void {
+    const { contentEl } = this;
+    contentEl.empty();
+
+    contentEl.createEl('h2', { text: '添加自定义字段', cls: 'al-modal-header' });
+
+    const body = contentEl.createDiv();
+    body.style.padding = '20px';
+
+    // 字段名称
+    const keyItem = body.createDiv('al-form-item');
+    keyItem.createEl('label', { text: '字段名称' });
+    const keyInput = keyItem.createEl('input');
+    keyInput.type = 'text';
+    keyInput.placeholder = '输入字段名称（如：备注、标签）';
+
+    // 显示标签
+    const labelItem = body.createDiv('al-form-item');
+    labelItem.createEl('label', { text: '显示标签' });
+    const labelInput = labelItem.createEl('input');
+    labelInput.type = 'text';
+    labelInput.placeholder = '输入显示名称';
+
+    // 字段类型
+    const typeItem = body.createDiv('al-form-item');
+    typeItem.createEl('label', { text: '字段类型' });
+    const typeSelect = typeItem.createEl('select');
+    ['text', 'number', 'date', 'select'].forEach(t => {
+      typeSelect.createEl('option', { value: t, text: { text: '文本', number: '数字', date: '日期', select: '单选' }[t] });
+    });
+
+    // 选项（单选类型时显示）
+    const optionsRow = body.createDiv('al-form-item');
+    optionsRow.style.display = 'none';
+    optionsRow.createEl('label', { text: '选项（逗号分隔）' });
+    const optionsInput = optionsRow.createEl('input');
+    optionsInput.type = 'text';
+    optionsInput.placeholder = '如：重要,普通,紧急';
+
+    // 字段值
+    const valueItem = body.createDiv('al-form-item');
+    valueItem.createEl('label', { text: '字段值（可选）' });
+    const valueInput = valueItem.createEl('input');
+    valueInput.type = 'text';
+    valueInput.placeholder = '输入字段值';
+
     typeSelect.addEventListener('change', () => {
       optionsRow.style.display = typeSelect.value === 'select' ? 'block' : 'none';
     });
 
-    const close = () => modal.remove();
-    modal.querySelector('.al-modal-bg')?.addEventListener('click', close);
-    modal.querySelector('.al-modal-close')?.addEventListener('click', close);
-    modal.querySelector('#al-custom-field-cancel')?.addEventListener('click', close);
+    const footer = contentEl.createDiv('al-modal-footer');
+    const cancelBtn = footer.createEl('button', { text: '取消', cls: 'al-btn-secondary' });
+    const saveBtn = footer.createEl('button', { text: '保存', cls: 'mod-cta' });
 
-    modal.querySelector('#al-custom-field-save')?.addEventListener('click', async () => {
+    cancelBtn.addEventListener('click', () => this.close());
+
+    saveBtn.addEventListener('click', async () => {
       const fieldKey = keyInput.value.trim();
       const fieldLabel = labelInput.value.trim() || fieldKey;
       const fieldType = typeSelect.value;
@@ -731,15 +999,13 @@ export class ViewModals {
         return;
       }
 
-      // 检查是否已存在
-      const settings = view.plugin.getSettings();
+      const settings = this.view.plugin.getSettings();
       const existingFields = settings.customGoalFields || [];
       if (existingFields.some(f => f.key === fieldKey)) {
         new Notice('该字段已存在');
         return;
       }
 
-      // 添加到设置
       const newField: CustomFieldConfig = {
         key: fieldKey,
         label: fieldLabel,
@@ -750,20 +1016,19 @@ export class ViewModals {
 
       existingFields.push(newField);
       settings.customGoalFields = existingFields;
-      await view.plugin.saveSettings();
+      await this.view.plugin.saveSettings();
 
-      // 如果有值，更新目标
-      if (fieldValue && view.selectedGoalId) {
+      if (fieldValue && this.view.selectedGoalId) {
         const updateData: Record<string, any> = {};
         updateData[fieldKey] = fieldValue;
-        await view.plugin.getGoalManager().updateGoal(view.selectedGoalId, updateData);
+        await this.view.plugin.getGoalManager().updateGoal(this.view.selectedGoalId, updateData);
       }
 
       new Notice('自定义字段已添加');
-      close();
-      view.loadAndRender();
+      this.close();
+      this.view.loadAndRender();
     });
 
-    keyInput.focus();
+    setTimeout(() => keyInput.focus(), 100);
   }
 }
