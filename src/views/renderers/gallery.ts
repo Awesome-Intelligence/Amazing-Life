@@ -30,12 +30,14 @@ export class GalleryRenderer {
       const gt = allTasks.filter(t => t['A-goal'] === goal['A-id']);
       const coverUrl = this.view.getCoverImageUrl(goal['A-cover']);
       const customFields = this.view.getEnabledCustomFields();
-      let cardContent = `<div class="al-gallery-card al-gallery-goal" data-goal-id="${goal['A-id']}">`;
+      const hasCover = fields.includes('cover') && coverUrl;
+      let cardContent = `<div class="al-gallery-card al-gallery-goal${hasCover ? ' has-cover' : ''}" data-goal-id="${goal['A-id']}">`;
 
-      if (fields.includes('cover') && coverUrl) {
+      if (hasCover) {
         cardContent += `<div class="al-gallery-card-cover"><img src="${coverUrl}" alt="封面图"></div>`;
       }
 
+      cardContent += '<div class="al-gallery-card-body">';
       cardContent += `<div class="al-gallery-card-header"><span class="al-goal-level" data-level="${goal['A-level']}" style="background:${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span></div>`;
 
       if (fields.includes('title')) cardContent += `<div class="al-gallery-card-title">${goal['A-title']}</div>`;
@@ -50,7 +52,7 @@ export class GalleryRenderer {
       // 渲染自定义字段
       cardContent += this.view.renderCustomFields(goal, customFields);
 
-      cardContent += '</div>';
+      cardContent += '</div></div>';
       return cardContent;
     };
 
