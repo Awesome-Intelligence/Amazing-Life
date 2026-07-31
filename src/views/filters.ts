@@ -133,9 +133,11 @@ export class FilterHelper {
     return fieldDef?.type || 'string';
   }
 
-  // 渲染筛选栏
+  // 渲染筛选栏 - 新设计
   renderFilterBar(currentFilters: { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | 'parent' | null }): string {
     const hasConditions = this.view.tempFilterConditions.length > 0;
+    const isModified = this.view.tempFilterModified;
+    const isExpanded = this.view.tempShowFilterBuilder;
 
     const groupByOptions = [
       { value: '', label: '不分组' },
@@ -146,24 +148,37 @@ export class FilterHelper {
 
     const showGroupBy = ['board', 'gallery'].includes(this.view.currentView);
 
+    // 生成条件摘要（用于折叠状态下的显示）
+    const conditionsSummary = this.renderConditionsSummary();
+
+    // 根据是否有条件决定主按钮文案
+    const mainButtonText = hasConditions ? '添加' : '添加筛选';
+    const toggleText = isExpanded ? '▲' : '▼';
+    const conditionsCountText = hasConditions ? `${this.view.tempFilterConditions.length}个条件` : '';
+
     return `
       <div class="al-filter-bar">
-        <button id="al-toggle-filter-builder" class="al-filter-toggle ${this.view.tempShowFilterBuilder ? 'active' : ''}">
-          ${this.view.tempShowFilterBuilder ? '收起' : '添加筛选条件'}
-        </button>
-
         ${hasConditions ? `
-          <button id="al-filter-save" class="al-filter-btn">保存</button>
-          <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">清除</button>
+          <button id="al-toggle-filter-bar" class="al-filter-toggle ${isExpanded ? 'active' : ''}">
+            ${toggleText} ${conditionsCountText}
+          </button>
+          <span class="al-filter-summary">${conditionsSummary}</span>
+          <button id="al-add-filter-condition-inline" class="al-filter-add-inline" title="添加条件">+</button>
         ` : ''}
-
-        ${hasConditions ? `<span class="al-filter-count">${this.view.tempFilterConditions.length} 个条件 (${this.view.tempFilterLogic === 'and' ? '且' : '或'})</span>` : ''}
+        
+        ${!hasConditions ? `
+          <button id="al-add-filter-start" class="al-filter-add-start">+ ${mainButtonText}</button>
+        ` : ''}
 
         <div class="al-filter-spacer"></div>
 
+        ${isModified ? `
+          <button id="al-filter-save" class="al-filter-btn al-filter-btn-primary">保存</button>
+          <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">清除</button>
+        ` : ''}
+
         ${showGroupBy ? `
           <div class="al-board-group-inline">
-            <span class="al-board-group-label">分组：</span>
             <select id="al-board-group-by" class="al-filter-select">
               ${groupByOptions.map(opt => `<option value="${opt.value}" ${currentFilters.groupBy === opt.value || (opt.value === '' && !currentFilters.groupBy) ? 'selected' : ''}>${opt.label}</option>`).join('')}
             </select>
@@ -172,14 +187,56 @@ export class FilterHelper {
 
         <button class="al-filter-settings-btn" id="al-open-field-settings" title="字段设置">
           <span class="al-tab-icon" data-icon="settings"></span>
-          <span>字段</span>
         </button>
       </div>
-      ${this.view.tempShowFilterBuilder ? this.renderFilterBuilder() : ''}
+      
+      ${isExpanded ? this.renderFilterBuilder() : ''}
     `;
   }
 
-  // 渲染筛选构建器
+  // 渲染条件摘要（用于折叠状态下的显示）
+  renderConditionsSummary(): string {
+    const fields = GOAL_FILTER_FIELDS;
+    return this.view.tempFilterConditions.map((condition, index) => {
+      const fieldDef = fields.find(f => f.field === condition.field);
+      const fieldLabel = fieldDef?.label || condition.field;
+      const operatorLabel = FILTER_OPERATOR_LABELS[condition.operator] || condition.operator;
+      const valueDisplay = this.getConditionValueDisplay(condition);
+      return `<span class="al-filter-summary-item">${fieldLabel} ${operatorLabel} ${valueDisplay}</span>`;
+    }).join(' ');
+  }
+
+  // 获取条件的值显示
+  getConditionValueDisplay(condition: FilterCondition): string {
+    // 不需要值的操作符
+    if (['is_empty', 'is_not_empty', 'is_null', 'is_not_null'].includes(condition.operator)) {
+      return '';
+    }
+
+    if (condition.value === null || condition.value === undefined || condition.value === '') {
+      return '(空)';
+    }
+
+    const fieldDef = GOAL_FILTER_FIELDS.find(f => f.field === condition.field);
+    
+    // select 类型显示选项标签
+    if (fieldDef?.type === 'select' && fieldDef.options) {
+      const option = fieldDef.options.find(o => o.value === condition.value);
+      return option?.label || String(condition.value);
+    }
+
+    // 数组类型（如 tags）
+    if (fieldDef?.type === 'array') {
+      const values: string[] = Array.isArray(condition.value) 
+        ? condition.value.map(v => String(v)) 
+        : String(condition.value || '').split(',');
+      return values.slice(0, 2).join(', ') + (values.length > 2 ? '...' : '');
+    }
+
+    return String(condition.value);
+  }
+
+  // 渲染筛选构建器（展开状态）
   renderFilterBuilder(): string {
     const fields = GOAL_FILTER_FIELDS;
 
@@ -192,7 +249,13 @@ export class FilterHelper {
         </div>
 
         <div class="al-filter-conditions">
-          ${this.view.tempFilterConditions.map((condition, index) => this.renderFilterCondition(condition, index, fields)).join('')}
+          ${this.view.tempFilterConditions.map((condition, index) => {
+            // 如果是当前编辑的条件，渲染编辑模式；否则渲染卡片模式
+            if (this.view.tempFilterEditingId === condition.id) {
+              return this.renderFilterCondition(condition, index, fields);
+            }
+            return this.renderFilterConditionCard(condition, index, fields);
+          }).join('')}
         </div>
 
         <button id="al-add-filter-condition" class="al-filter-add-btn">+ 添加条件</button>
@@ -200,7 +263,29 @@ export class FilterHelper {
     `;
   }
 
-  // 渲染单个筛选条件
+  // 渲染单个筛选条件卡片（摘要模式，点击编辑）
+  renderFilterConditionCard(condition: FilterCondition, index: number, fields: typeof GOAL_FILTER_FIELDS): string {
+    const selectedField = fields.find(f => f.field === condition.field);
+    const fieldLabel = selectedField?.label || condition.field;
+    const operatorLabel = FILTER_OPERATOR_LABELS[condition.operator] || condition.operator;
+    const valueDisplay = this.getConditionValueDisplay(condition);
+
+    return `
+      <div class="al-filter-condition-card" data-condition-id="${condition.id}">
+        <div class="al-filter-condition-summary">
+          <span class="al-filter-condition-field">${fieldLabel}</span>
+          <span class="al-filter-condition-op">${operatorLabel}</span>
+          <span class="al-filter-condition-value">${valueDisplay}</span>
+          <div class="al-filter-condition-actions">
+            <button class="al-filter-edit-btn" data-condition-id="${condition.id}">编辑</button>
+            <button class="al-filter-remove-btn" data-condition-id="${condition.id}">✕</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // 渲染单个筛选条件的编辑模式
   renderFilterCondition(condition: FilterCondition, index: number, fields: typeof GOAL_FILTER_FIELDS): string {
     const selectedField = fields.find(f => f.field === condition.field);
     const fieldType = selectedField?.type || 'string';
@@ -286,6 +371,7 @@ export class FilterHelper {
   // 删除筛选条件
   removeFilterCondition(conditionId: string): void {
     this.view.tempFilterConditions = this.view.tempFilterConditions.filter(c => c.id !== conditionId);
+    this.view.tempFilterModified = true;
     this.view.render();
   }
 
@@ -308,5 +394,6 @@ export class FilterHelper {
       }
       return c;
     });
+    this.view.tempFilterModified = true;
   }
 }

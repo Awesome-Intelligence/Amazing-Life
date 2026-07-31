@@ -60,6 +60,8 @@ export class DashboardView extends ItemView {
   public tempFilterConditions: FilterCondition[] = [];
   public tempFilterLogic: FilterLogic = 'and';
   public tempShowFilterBuilder: boolean = false;
+  public tempFilterModified: boolean = false;  // 标记是否有未保存的修改
+  public tempFilterEditingId: string | null = null;  // 当前正在编辑的条件ID
 
   // 各渲染/工具 helper（组合方式持有）
   public filterHelper: FilterHelper;
@@ -214,6 +216,8 @@ export class DashboardView extends ItemView {
       this.tempFilterConditions = [...(tab.filters || [])];
       this.tempFilterLogic = tab.filterLogic || 'and';
       this.tempShowFilterBuilder = false;
+      this.tempFilterModified = false;  // 切换标签时重置修改状态
+      this.tempFilterEditingId = null;
     }
     this.render();
   }

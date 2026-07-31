@@ -388,25 +388,66 @@ export class EventManager {
       });
     });
 
-    // 筛选事件
-    content.querySelector('#al-toggle-filter-builder')?.addEventListener('click', () => {
-      view.tempShowFilterBuilder = !view.tempShowFilterBuilder;
+    // ========== 筛选事件（新版） ==========
+    
+    // 点击 "添加筛选" 按钮（无条件时）
+    content.querySelector('#al-add-filter-start')?.addEventListener('click', () => {
+      view.tempShowFilterBuilder = true;
+      view.tempFilterEditingId = null;
+      view.tempFilterModified = true;
+      view.tempFilterConditions.push({
+        id: view.generateFilterId(),
+        field: 'A-title',
+        operator: 'contains',
+        value: ''
+      });
+      view.tempFilterEditingId = view.tempFilterConditions[0].id;
       view.render();
     });
 
+    // 点击展开/收起筛选条件栏（有条件时的主按钮）
+    content.querySelector('#al-toggle-filter-bar')?.addEventListener('click', () => {
+      view.tempShowFilterBuilder = !view.tempShowFilterBuilder;
+      view.tempFilterEditingId = null;
+      view.render();
+    });
+
+    // 点击行内添加条件按钮
+    content.querySelector('#al-add-filter-condition-inline')?.addEventListener('click', () => {
+      view.tempShowFilterBuilder = true;
+      view.tempFilterConditions.push({
+        id: view.generateFilterId(),
+        field: 'A-title',
+        operator: 'contains',
+        value: ''
+      });
+      view.tempFilterEditingId = view.tempFilterConditions[view.tempFilterConditions.length - 1].id;
+      view.tempFilterModified = true;
+      view.render();
+    });
+
+    // 保存按钮
     content.querySelector('#al-filter-save')?.addEventListener('click', () => {
       view.updateActiveTabFilters(view.tempFilterConditions, view.tempFilterLogic);
+      view.tempFilterModified = false;
+      view.tempFilterEditingId = null;
+      view.tempShowFilterBuilder = false;
+      view.render();
       new Notice('筛选条件已保存');
     });
 
+    // 清除按钮（撤销修改）
     content.querySelector('#al-filter-clear')?.addEventListener('click', () => {
-      view.tempFilterConditions = [];
-      view.tempFilterLogic = 'and';
+      const currentFilters = view.getCurrentFilters();
+      view.tempFilterConditions = [...currentFilters.conditions];
+      view.tempFilterLogic = currentFilters.logic;
+      view.tempFilterModified = false;
+      view.tempFilterEditingId = null;
       view.tempShowFilterBuilder = false;
-      view.updateActiveTabFilters([], 'and');
       view.render();
     });
 
+    // 在筛选构建器中添加条件
     content.querySelector('#al-add-filter-condition')?.addEventListener('click', () => {
       view.tempFilterConditions.push({
         id: view.generateFilterId(),
@@ -414,6 +455,8 @@ export class EventManager {
         operator: 'contains',
         value: ''
       });
+      view.tempFilterModified = true;
+      view.tempFilterEditingId = view.tempFilterConditions[view.tempFilterConditions.length - 1].id;
       view.render();
     });
 
@@ -421,9 +464,31 @@ export class EventManager {
     content.querySelectorAll('.al-filter-logic-btn').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const logic = (e.currentTarget as HTMLElement).getAttribute('data-logic') as FilterLogic;
-        if (logic) {
+        if (logic && logic !== view.tempFilterLogic) {
           view.tempFilterLogic = logic;
+          view.tempFilterModified = true;
           view.render();
+        }
+      });
+    });
+
+    // 编辑条件按钮
+    content.querySelectorAll('.al-filter-edit-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const conditionId = (e.currentTarget as HTMLElement).getAttribute('data-condition-id');
+        if (conditionId) {
+          view.tempFilterEditingId = conditionId;
+          view.render();
+        }
+      });
+    });
+
+    // 删除条件
+    content.querySelectorAll('.al-filter-remove-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const conditionId = (e.currentTarget as HTMLElement).getAttribute('data-condition-id');
+        if (conditionId) {
+          view.filterHelper.removeFilterCondition(conditionId);
         }
       });
     });
@@ -481,16 +546,6 @@ export class EventManager {
             const newValue = (e.target as HTMLInputElement | HTMLSelectElement).value;
             view.filterHelper.updateFilterCondition(conditionId, { value: newValue || null });
           }
-        }
-      });
-    });
-
-    // 删除条件
-    content.querySelectorAll('.al-filter-remove-btn').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const conditionId = (e.currentTarget as HTMLElement).getAttribute('data-condition-id');
-        if (conditionId) {
-          view.filterHelper.removeFilterCondition(conditionId);
         }
       });
     });
