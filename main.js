@@ -99,6 +99,15 @@ LIMIT 50
           ${this.view.tempShowFilterBuilder?"\u6536\u8D77":"\u6DFB\u52A0\u7B5B\u9009\u6761\u4EF6"}
         </button>
 
+        ${e?`
+          <button id="al-filter-save" class="al-filter-btn">\u4FDD\u5B58</button>
+          <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">\u6E05\u9664</button>
+        `:""}
+
+        ${e?`<span class="al-filter-count">${this.view.tempFilterConditions.length} \u4E2A\u6761\u4EF6 (${this.view.tempFilterLogic==="and"?"\u4E14":"\u6216"})</span>`:""}
+
+        <div class="al-filter-spacer"></div>
+
         ${r?`
           <div class="al-board-group-inline">
             <span class="al-board-group-label">\u5206\u7EC4\uFF1A</span>
@@ -108,14 +117,6 @@ LIMIT 50
           </div>
         `:""}
 
-        ${e?`
-          <button id="al-filter-save" class="al-filter-btn">\u4FDD\u5B58</button>
-          <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">\u6E05\u9664</button>
-        `:""}
-
-        ${e?`<span class="al-filter-count">${this.view.tempFilterConditions.length} \u4E2A\u6761\u4EF6 (${this.view.tempFilterLogic==="and"?"\u4E14":"\u6216"})</span>`:""}
-
-        <div class="al-filter-spacer"></div>
         <button class="al-filter-settings-btn" id="al-open-field-settings" title="\u5B57\u6BB5\u8BBE\u7F6E">
           <span class="al-tab-icon" data-icon="settings"></span>
           <span>\u5B57\u6BB5</span>

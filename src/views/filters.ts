@@ -152,6 +152,15 @@ export class FilterHelper {
           ${this.view.tempShowFilterBuilder ? '收起' : '添加筛选条件'}
         </button>
 
+        ${hasConditions ? `
+          <button id="al-filter-save" class="al-filter-btn">保存</button>
+          <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">清除</button>
+        ` : ''}
+
+        ${hasConditions ? `<span class="al-filter-count">${this.view.tempFilterConditions.length} 个条件 (${this.view.tempFilterLogic === 'and' ? '且' : '或'})</span>` : ''}
+
+        <div class="al-filter-spacer"></div>
+
         ${showGroupBy ? `
           <div class="al-board-group-inline">
             <span class="al-board-group-label">分组：</span>
@@ -161,14 +170,6 @@ export class FilterHelper {
           </div>
         ` : ''}
 
-        ${hasConditions ? `
-          <button id="al-filter-save" class="al-filter-btn">保存</button>
-          <button id="al-filter-clear" class="al-filter-btn al-filter-btn-danger">清除</button>
-        ` : ''}
-
-        ${hasConditions ? `<span class="al-filter-count">${this.view.tempFilterConditions.length} 个条件 (${this.view.tempFilterLogic === 'and' ? '且' : '或'})</span>` : ''}
-
-        <div class="al-filter-spacer"></div>
         <button class="al-filter-settings-btn" id="al-open-field-settings" title="字段设置">
           <span class="al-tab-icon" data-icon="settings"></span>
           <span>字段</span>
