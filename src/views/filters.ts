@@ -285,22 +285,25 @@ export class FilterHelper {
     `;
   }
 
-  // 渲染单个筛选条件的编辑模式
+  // 渲染单个筛选条件的编辑模式（使用 Obsidian 风格按钮，点击弹出 Menu）
   renderFilterCondition(condition: FilterCondition, index: number, fields: typeof GOAL_FILTER_FIELDS): string {
     const selectedField = fields.find(f => f.field === condition.field);
     const fieldType = selectedField?.type || 'string';
     const availableOperators = this.getOperatorsForFieldType(fieldType);
     const needsValue = !['is_empty', 'is_not_empty', 'is_null', 'is_not_null'].includes(condition.operator);
+    const operatorLabel = FILTER_OPERATOR_LABELS[condition.operator] || condition.operator;
 
     return `
       <div class="al-filter-condition" data-condition-id="${condition.id}">
-        <select class="al-filter-field-select" data-condition-index="${index}">
-          ${fields.map(f => `<option value="${f.field}" ${f.field === condition.field ? 'selected' : ''}>${f.label}</option>`).join('')}
-        </select>
+        <button class="al-filter-field-btn" data-condition-id="${condition.id}">
+          ${selectedField?.label || '选择字段'}
+          <span class="al-filter-dropdown-arrow">▾</span>
+        </button>
 
-        <select class="al-filter-operator-select" data-condition-index="${index}">
-          ${availableOperators.map(op => `<option value="${op}" ${op === condition.operator ? 'selected' : ''}>${FILTER_OPERATOR_LABELS[op]}</option>`).join('')}
-        </select>
+        <button class="al-filter-operator-btn" data-condition-id="${condition.id}">
+          ${operatorLabel}
+          <span class="al-filter-dropdown-arrow">▾</span>
+        </button>
 
         ${needsValue ? this.renderConditionValue(condition, selectedField) : '<span class="al-filter-no-value">-</span>'}
 
@@ -309,62 +312,45 @@ export class FilterHelper {
     `;
   }
 
-  // 渲染条件值输入
+  // 渲染条件值输入（使用按钮风格，点击弹出 Menu）
   renderConditionValue(condition: FilterCondition, fieldDef: typeof GOAL_FILTER_FIELDS[0] | undefined): string {
     if (!fieldDef) {
       return `<input type="text" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" placeholder="输入值...">`;
     }
 
+    // select 类型 - 显示按钮，点击弹出选项
     if (fieldDef.type === 'select' && fieldDef.options) {
+      const selectedOption = fieldDef.options.find(o => o.value === condition.value);
       return `
-        <select class="al-filter-value-select" data-condition-id="${condition.id}">
-          <option value="">请选择...</option>
-          ${fieldDef.options.map(opt => `<option value="${opt.value}">${opt.label}</option>`).join('')}
-        </select>
+        <button class="al-filter-value-btn" data-condition-id="${condition.id}" data-value-type="select">
+          ${selectedOption?.label || '请选择...'}
+          <span class="al-filter-dropdown-arrow">▾</span>
+        </button>
       `;
     }
 
+    // number 类型 - 输入框
     if (fieldDef.type === 'number') {
       return `<input type="number" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" min="${fieldDef.min || 0}" max="${fieldDef.max || 100}">`;
     }
 
+    // date 类型 - 输入框
     if (fieldDef.type === 'date') {
       return `<input type="date" class="al-filter-value-input al-filter-date-input" data-condition-id="${condition.id}" value="${condition.value || ''}">`;
     }
 
+    // year 类型 - 按钮，点击弹出年份选择
     if (fieldDef.type === 'year') {
-      const currentYear = new Date().getFullYear();
-      const years: number[] = [];
-      for (let y = currentYear - 10; y <= currentYear + 10; y++) {
-        years.push(y);
-      }
-
-      // 年份区间需要两个年份选择器
-      if (condition.operator === 'year_between') {
-        const [startYear, endYear] = condition.value ? String(condition.value).split(',').map(Number) : [null, null];
-        return `
-          <div class="al-filter-year-range">
-            <select class="al-filter-value-select al-filter-year-select" data-condition-id="${condition.id}" data-year-part="start">
-              <option value="">开始年份</option>
-              ${years.map(y => `<option value="${y}" ${startYear === y ? 'selected' : ''}>${y}年</option>`).join('')}
-            </select>
-            <span class="al-filter-year-range-sep">至</span>
-            <select class="al-filter-value-select al-filter-year-select" data-condition-id="${condition.id}" data-year-part="end">
-              <option value="">结束年份</option>
-              ${years.map(y => `<option value="${y}" ${endYear === y ? 'selected' : ''}>${y}年</option>`).join('')}
-            </select>
-          </div>
-        `;
-      }
-
+      const displayValue = condition.value ? `${condition.value}年` : '请选择年份';
       return `
-        <select class="al-filter-value-select al-filter-year-select" data-condition-id="${condition.id}">
-          <option value="">请选择年份...</option>
-          ${years.map(y => `<option value="${y}" ${condition.value == y ? 'selected' : ''}>${y}年</option>`).join('')}
-        </select>
+        <button class="al-filter-value-btn" data-condition-id="${condition.id}" data-value-type="year">
+          ${displayValue}
+          <span class="al-filter-dropdown-arrow">▾</span>
+        </button>
       `;
     }
 
+    // 默认 - 文本输入框
     return `<input type="text" class="al-filter-value-input" data-condition-id="${condition.id}" value="${condition.value || ''}" placeholder="输入值...">`;
   }
 

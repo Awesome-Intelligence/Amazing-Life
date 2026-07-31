@@ -9,10 +9,10 @@
  * 通过组合方式持有 DashboardView 实例引用，访问共享状态与其它 helper。
  */
 
-import { Notice, Menu } from 'obsidian';
+import { Notice, Menu, setIcon } from 'obsidian';
 import type { DashboardView } from './DashboardView';
 import { DeleteConfirmModal, CoverImagePickerModal } from './modals';
-import { FilterLogic, FilterOperator, ViewType } from '../types';
+import { FilterLogic, FilterOperator, ViewType, GOAL_FILTER_FIELDS, FILTER_OPERATOR_LABELS } from '../types';
 
 export class EventManager {
   constructor(private view: DashboardView) {}
@@ -493,59 +493,123 @@ export class EventManager {
       });
     });
 
-    // 字段选择变化
-    content.querySelectorAll('.al-filter-field-select').forEach(select => {
-      select.addEventListener('change', (e) => {
-        const conditionId = (e.currentTarget as HTMLElement).closest('.al-filter-condition')?.getAttribute('data-condition-id');
-        if (conditionId) {
-          const newField = (e.target as HTMLSelectElement).value;
-          view.filterHelper.updateFilterCondition(conditionId, { field: newField });
-          view.render();
-        }
+    // ========== 筛选条件编辑 - Obsidian 风格 Menu ==========
+    
+    // 字段选择按钮 - 弹出 Menu
+    content.querySelectorAll('.al-filter-field-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const btnEl = e.currentTarget as HTMLElement;
+        const conditionId = btnEl.getAttribute('data-condition-id');
+        if (!conditionId) return;
+
+        const menu = new Menu();
+        menu.setUseNativeMenu(true);
+
+        GOAL_FILTER_FIELDS.forEach(field => {
+          menu.addItem((item) => {
+            item.setTitle(field.label)
+              .onClick(() => {
+                view.filterHelper.updateFilterCondition(conditionId, { field: field.field });
+                view.render();
+              });
+          });
+        });
+
+        const rect = btnEl.getBoundingClientRect();
+        menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
       });
     });
 
-    // 操作符变化
-    content.querySelectorAll('.al-filter-operator-select').forEach(select => {
-      select.addEventListener('change', (e) => {
-        const conditionId = (e.currentTarget as HTMLElement).closest('.al-filter-condition')?.getAttribute('data-condition-id');
-        if (conditionId) {
-          const newOperator = (e.target as HTMLSelectElement).value as FilterOperator;
-          view.filterHelper.updateFilterCondition(conditionId, { operator: newOperator });
-          view.render();
-        }
+    // 操作符选择按钮 - 弹出 Menu
+    content.querySelectorAll('.al-filter-operator-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const btnEl = e.currentTarget as HTMLElement;
+        const conditionId = btnEl.getAttribute('data-condition-id');
+        if (!conditionId) return;
+
+        const condition = view.tempFilterConditions.find(c => c.id === conditionId);
+        if (!condition) return;
+
+        const fieldDef = GOAL_FILTER_FIELDS.find(f => f.field === condition.field);
+        const fieldType = fieldDef?.type || 'string';
+        const availableOperators = view.filterHelper.getOperatorsForFieldType(fieldType);
+
+        const menu = new Menu();
+        menu.setUseNativeMenu(true);
+
+        availableOperators.forEach(op => {
+          menu.addItem((item) => {
+            item.setTitle(FILTER_OPERATOR_LABELS[op] || op)
+              .onClick(() => {
+                view.filterHelper.updateFilterCondition(conditionId, { operator: op });
+                view.render();
+              });
+          });
+        });
+
+        const rect = btnEl.getBoundingClientRect();
+        menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
       });
     });
 
-    // 值输入变化
-    content.querySelectorAll('.al-filter-value-input, .al-filter-value-select').forEach(input => {
+    // 值选择按钮 - 弹出 Menu (select 类型和 year 类型)
+    content.querySelectorAll('.al-filter-value-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const btnEl = e.currentTarget as HTMLElement;
+        const conditionId = btnEl.getAttribute('data-condition-id');
+        const valueType = btnEl.getAttribute('data-value-type');
+        if (!conditionId) return;
+
+        const condition = view.tempFilterConditions.find(c => c.id === conditionId);
+        if (!condition) return;
+
+        const fieldDef = GOAL_FILTER_FIELDS.find(f => f.field === condition.field);
+
+        const menu = new Menu();
+        menu.setUseNativeMenu(true);
+
+        if (valueType === 'select' && fieldDef?.options) {
+          // select 类型 - 显示选项
+          fieldDef.options.forEach(opt => {
+            menu.addItem((item) => {
+              item.setTitle(opt.label)
+                .onClick(() => {
+                  view.filterHelper.updateFilterCondition(conditionId, { value: opt.value });
+                  view.render();
+                });
+            });
+          });
+        } else if (valueType === 'year') {
+          // year 类型 - 显示年份列表
+          const currentYear = new Date().getFullYear();
+          for (let y = currentYear - 10; y <= currentYear + 10; y++) {
+            const yearStr = String(y);
+            menu.addItem((item) => {
+              item.setTitle(`${y}年`)
+                .onClick(() => {
+                  view.filterHelper.updateFilterCondition(conditionId, { value: yearStr });
+                  view.render();
+                });
+            });
+          }
+        }
+
+        const rect = btnEl.getBoundingClientRect();
+        menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
+      });
+    });
+
+    // 值输入变化（仅处理 input 类型）
+    content.querySelectorAll('.al-filter-value-input').forEach(input => {
       input.addEventListener('change', (e) => {
         const conditionId = (e.currentTarget as HTMLElement).getAttribute('data-condition-id');
-        const yearPart = (e.currentTarget as HTMLElement).getAttribute('data-year-part');
-
         if (conditionId) {
-          // 处理年份区间的特殊情况
-          if (yearPart) {
-            const condition = view.tempFilterConditions.find(c => c.id === conditionId);
-            if (condition) {
-              const currentValue = condition.value ? String(condition.value).split(',') : ['', ''];
-              const newYear = (e.target as HTMLSelectElement).value;
-
-              if (yearPart === 'start') {
-                currentValue[0] = newYear;
-              } else {
-                currentValue[1] = newYear;
-              }
-
-              // 只有当两个值都有时才更新
-              if (currentValue[0] && currentValue[1]) {
-                view.filterHelper.updateFilterCondition(conditionId, { value: currentValue.join(',') });
-              }
-            }
-          } else {
-            const newValue = (e.target as HTMLInputElement | HTMLSelectElement).value;
-            view.filterHelper.updateFilterCondition(conditionId, { value: newValue || null });
-          }
+          const newValue = (e.target as HTMLInputElement).value;
+          view.filterHelper.updateFilterCondition(conditionId, { value: newValue || null });
+          view.render();
         }
       });
     });
