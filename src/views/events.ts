@@ -1,0 +1,647 @@
+/**
+ * Dashboard View - Event Manager
+ *
+ * 从 DashboardView.ts 抽出的事件绑定与引用加载逻辑：
+ * - bindEvents：渲染后挂载全部 DOM 事件（标签页、筛选、详情、拖拽、任务勾选等）
+ * - toggleTaskStatus：切换任务完成状态
+ * - loadGoalReferences / loadTaskReferences：异步加载并渲染引用记录
+ *
+ * 通过组合方式持有 DashboardView 实例引用，访问共享状态与其它 helper。
+ */
+
+import { Notice, Menu } from 'obsidian';
+import type { DashboardView } from './DashboardView';
+import { DeleteConfirmModal, CoverImagePickerModal } from './modals';
+import { FilterLogic, FilterOperator, ViewType } from '../types';
+
+export class EventManager {
+  constructor(private view: DashboardView) {}
+
+  bindEvents(): void {
+    const view = this.view;
+    const content = view.contentEl;
+
+    // Calendar events
+    view.calendarRenderer.bindCalendarEvents(content);
+
+    // 仪表盘标签点击（固定的）
+    content.querySelectorAll('.al-view-tab[data-view]').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const viewType = (tab as HTMLElement).getAttribute('data-view') as ViewType;
+        if (viewType === 'dashboard' && view.currentView !== 'dashboard') {
+          view.currentView = 'dashboard';
+          view.selectedGoalId = null;
+          view.selectedTaskId = null;
+          view.render();
+        }
+      });
+    });
+
+    // 标签页点击事件
+    content.querySelectorAll('.al-view-tab[data-tab-id]').forEach(tab => {
+      tab.addEventListener('click', () => {
+        const tabId = (tab as HTMLElement).getAttribute('data-tab-id');
+        if (tabId) {
+          view.switchTab(tabId);
+        }
+      });
+    });
+
+    // 标签页右键菜单（桌面端）和长按菜单（移动端）
+    content.querySelectorAll('.al-view-tab[data-tab-id]').forEach(tabEl => {
+      // 右键菜单
+      tabEl.addEventListener('contextmenu', (e: Event) => {
+        const tabId = (tabEl as HTMLElement).getAttribute('data-tab-id');
+        if (tabId) {
+          const nameEl = tabEl.querySelector('.al-tab-name') as HTMLElement;
+          view.showTabContextMenu(nameEl || (tabEl as HTMLElement), tabId, e as MouseEvent);
+        }
+      });
+
+      // 长按弹出菜单（移动端）
+      let longPressTimer: number | null = null;
+      tabEl.addEventListener('touchstart', (e) => {
+        longPressTimer = window.setTimeout(() => {
+          const tabId = (tabEl as HTMLElement).getAttribute('data-tab-id');
+          if (tabId) {
+            const nameEl = tabEl.querySelector('.al-tab-name') as HTMLElement;
+            view.showTabContextMenu(nameEl || (tabEl as HTMLElement), tabId);
+          }
+        }, 500);
+      });
+
+      tabEl.addEventListener('touchend', () => {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      });
+
+      tabEl.addEventListener('touchcancel', () => {
+        if (longPressTimer) {
+          clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      });
+    });
+
+    // 添加视图按钮 - 显示下拉菜单
+    content.querySelector('#al-add-view-tab')?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      view.modalHelper.showAddViewDropdown(e as MouseEvent);
+    });
+
+    // 看板/画廊分组选择
+    content.querySelector('#al-board-group-by')?.addEventListener('change', (e) => {
+      const groupByValue = (e.target as HTMLSelectElement).value;
+      const groupBy = groupByValue === '' ? null : groupByValue as 'level' | 'goalStatus' | 'parent';
+      view.updateActiveTabGroupBy(groupBy);
+      view.render();
+    });
+
+    // 返回按钮 - 返回上一页
+    content.querySelector('#al-back-btn')?.addEventListener('click', () => { view.goBack(); });
+
+    // 目标更多操作菜单 - 使用 Obsidian 原生 Menu
+    const menuBtn = content.querySelector('#al-goal-menu-btn');
+
+    menuBtn?.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const menu = new Menu();
+      menu.setUseNativeMenu(true);
+
+      menu.addItem((item) => {
+        item.setTitle('打开目标文件')
+          .setIcon('file-text')
+          .onClick(async () => {
+            if (view.selectedGoalId) {
+              try {
+                const file = await view.plugin.getGoalManager().getGoalFile(view.selectedGoalId);
+                if (file) {
+                  await view.plugin.app.workspace.getLeaf(true).openFile(file);
+                } else {
+                  new Notice('未找到目标文件');
+                }
+              } catch (error) {
+                new Notice('打开文件失败');
+              }
+            }
+          });
+      });
+
+      menu.addItem((item) => {
+        item.setTitle('刷新目标')
+          .setIcon('refresh-cw')
+          .onClick(async () => {
+            if (view.selectedGoalId) {
+              await view.plugin.getGoalManager().loadGoals();
+              new Notice('已刷新目标');
+              view.loadAndRender();
+            }
+          });
+      });
+
+      menu.addItem((item) => {
+        item.setTitle('删除目标')
+          .setIcon('trash-2')
+          .onClick(() => {
+            if (view.selectedGoalId) {
+              const goal = view.getGoal(view.selectedGoalId);
+              if (goal) {
+                const subGoals = view.plugin.getGoalManager().getAllGoals().filter(g => g['A-parent'] === view.selectedGoalId);
+
+                if (subGoals.length > 0) {
+                  view.modalHelper.showDeleteGoalWithChildrenModal(goal, subGoals);
+                } else {
+                  new DeleteConfirmModal(view.plugin, goal['A-title'], () => {
+                    view.plugin.getGoalManager().deleteGoal(view.selectedGoalId!).then(() => {
+                      new Notice('目标已删除');
+                      view.goBack();
+                    }).catch(() => {
+                      new Notice('删除目标失败');
+                    });
+                  }).open();
+                }
+              }
+            }
+          });
+      });
+
+      menu.showAtPosition({ x: (e.target as HTMLElement).getBoundingClientRect().right, y: (e.target as HTMLElement).getBoundingClientRect().bottom + 4 });
+    });
+
+    // Goal click events - 记录历史
+    content.querySelectorAll('.al-goal, .al-gallery-goal').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { view.navigateTo('goal-detail', goalId, null); } }); });
+
+    // Task click events (in detail views) - 记录历史
+    content.querySelectorAll('.al-detail-task').forEach(el => { el.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.task-list-item-checkbox')) { return; } const taskId = (e.currentTarget as HTMLElement).getAttribute('data-task-id'); if (taskId) { view.modalHelper.showTaskDetailModal(taskId); } }); });
+
+    // Task goal card click
+    content.querySelectorAll('.al-task-goal-card').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { view.navigateTo('goal-detail', goalId, null); } }); });
+
+    content.querySelector('#al-add-task-to-goal')?.addEventListener('click', () => { if (view.selectedGoalId) view.modalHelper.showCreateTaskModalForGoal(view.selectedGoalId); });
+
+    // 封面图片点击事件
+    content.querySelectorAll('.al-detail-add-cover, .al-detail-cover').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (view.selectedGoalId) {
+          const goal = view.getGoal(view.selectedGoalId);
+          if (goal) {
+            const goalId = view.selectedGoalId;
+            new CoverImagePickerModal(
+              view.plugin,
+              goalId,
+              goal['A-cover'],
+              async (imagePath) => {
+                await view.plugin.getGoalManager().updateGoal(goalId, { cover: imagePath });
+                view.loadAndRender();
+              },
+              async () => {
+                await view.plugin.getGoalManager().updateGoal(goalId, { cover: null });
+                view.loadAndRender();
+              }
+            ).open();
+          }
+        }
+      });
+    });
+
+    // 字段行内编辑事件
+    content.querySelectorAll('.al-field-row[data-field], .al-progress-field-row[data-field], .al-detail-description-block[data-field]').forEach(row => {
+      row.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        if (target.classList.contains('al-field-link')) return;
+        const field = row.getAttribute('data-field');
+        const value = row.getAttribute('data-value');
+        const fieldType = row.querySelector('.al-field-editable')?.getAttribute('data-field-type');
+        if (field && fieldType && field !== 'cover' && field !== 'parent' && view.selectedGoalId) {
+          view.modalHelper.startFieldEdit(row as HTMLElement, field, fieldType, value || '');
+        }
+      });
+    });
+
+    // 上级目标点击 - 选择父目标
+    content.querySelector('.al-parent-field-row')?.addEventListener('click', () => {
+      view.modalHelper.showParentSelectorModal();
+    });
+
+    // 进度管理块折叠/展开
+    content.querySelector('#al-progress-management-toggle')?.addEventListener('click', () => {
+      const innerContent = document.querySelector('#al-progress-management-content') as HTMLElement;
+      const toggleIcon = document.querySelector('#al-progress-toggle-icon') as HTMLElement;
+      if (innerContent) {
+        if (innerContent.style.display === 'none') {
+          innerContent.style.display = 'block';
+          toggleIcon.classList.remove('collapsed');
+          toggleIcon.textContent = '▼';
+        } else {
+          innerContent.style.display = 'none';
+          toggleIcon.classList.add('collapsed');
+          toggleIcon.textContent = '▶';
+        }
+      }
+    });
+
+    // 子目标折叠面板折叠/展开
+    content.querySelector('#al-subgoals-toggle')?.addEventListener('click', () => {
+      const innerContent = document.querySelector('#al-subgoals-content') as HTMLElement;
+      const toggleIcon = document.querySelector('#al-subgoals-toggle-icon') as HTMLElement;
+      if (innerContent) {
+        if (innerContent.style.display === 'none') {
+          innerContent.style.display = 'block';
+          toggleIcon.classList.add('expanded');
+          toggleIcon.textContent = '▼';
+        } else {
+          innerContent.style.display = 'none';
+          toggleIcon.classList.remove('expanded');
+          toggleIcon.textContent = '▶';
+        }
+      }
+    });
+
+    // 子目标点击 - 跳转到子目标详情
+    content.querySelectorAll('.al-subgoal-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id');
+        if (goalId) view.navigateTo('goal-detail', goalId, null);
+      });
+    });
+
+    // 添加子目标按钮
+    content.querySelector('#al-add-subgoal-btn')?.addEventListener('click', () => {
+      if (view.selectedGoalId) {
+        view.modalHelper.showCreateGoalModal({ parent: view.selectedGoalId });
+      }
+    });
+
+    // 关联任务折叠面板折叠/展开
+    content.querySelector('#al-tasks-toggle')?.addEventListener('click', () => {
+      const innerContent = document.querySelector('#al-tasks-content') as HTMLElement;
+      const toggleIcon = document.querySelector('#al-tasks-toggle-icon') as HTMLElement;
+      if (innerContent) {
+        if (innerContent.style.display === 'none') {
+          innerContent.style.display = 'block';
+          toggleIcon.classList.add('expanded');
+          toggleIcon.textContent = '▼';
+        } else {
+          innerContent.style.display = 'none';
+          toggleIcon.classList.remove('expanded');
+          toggleIcon.textContent = '▶';
+        }
+      }
+    });
+
+    // 任务点击事件
+    content.querySelectorAll('.al-task-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement;
+        if (target.classList.contains('task-list-item-checkbox')) return;
+        const taskId = (item as HTMLElement).getAttribute('data-task-id');
+        if (taskId) view.modalHelper.showTaskDetailModal(taskId);
+      });
+    });
+
+    // 自定义字段点击编辑事件
+    content.querySelectorAll('.al-custom-field-item').forEach(item => {
+      item.addEventListener('click', (e) => {
+        const el = e.currentTarget as HTMLElement;
+        const fieldKey = el.getAttribute('data-field-key');
+        const fieldType = el.getAttribute('data-field-type');
+        if (fieldKey && view.selectedGoalId) {
+          const goal = view.getGoal(view.selectedGoalId);
+          const value = goal ? goal[fieldKey] : '';
+          view.modalHelper.startCustomFieldEdit(el, fieldKey, fieldType || 'text', value);
+        }
+      });
+    });
+
+    // 添加自定义字段按钮
+    content.querySelector('#al-add-custom-field-btn')?.addEventListener('click', () => {
+      view.modalHelper.showAddCustomFieldModal();
+    });
+
+    // 上级目标点击事件
+    content.querySelectorAll('.al-field-link[data-goal-id]').forEach(link => {
+      link.addEventListener('click', (e) => {
+        const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id');
+        if (goalId) view.navigateTo('goal-detail', goalId, null);
+      });
+    });
+
+    // 进度滑块事件
+    content.querySelectorAll('.al-progress-slider[data-field="progress"]').forEach(slider => {
+      const valueEl = slider.parentElement?.querySelector('.al-progress-value');
+      slider.addEventListener('input', (e) => {
+        const value = (e.target as HTMLInputElement).value;
+        if (valueEl) valueEl.textContent = `${value}%`;
+      });
+      slider.addEventListener('change', async (e) => {
+        const value = parseInt((e.target as HTMLInputElement).value);
+        if (view.selectedGoalId) {
+          try {
+            await view.plugin.getGoalManager().updateGoal(view.selectedGoalId, { progress: value });
+            new Notice('进度已更新');
+            view.loadAndRender();
+          } catch (error) {
+            new Notice('更新失败: ' + (error as Error).message);
+          }
+        }
+      });
+    });
+
+    // 列表视图添加按钮
+    content.querySelector('#al-list-add-goal')?.addEventListener('click', () => view.modalHelper.showCreateGoalModal());
+
+    // 画廊视图添加按钮（事件委托，处理分组和不分组的添加按钮）
+    content.querySelectorAll('.al-gallery-add-card').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const el = e.currentTarget as HTMLElement;
+        const prefillLevel = el.getAttribute('data-prefill-level');
+        const prefillStatus = el.getAttribute('data-prefill-status');
+        const prefillParent = el.getAttribute('data-prefill-parent');
+        if (prefillParent) {
+          view.modalHelper.showCreateGoalModal({ parent: prefillParent });
+        } else if (prefillLevel) {
+          view.modalHelper.showCreateGoalModal({ level: parseInt(prefillLevel) });
+        } else if (prefillStatus) {
+          view.modalHelper.showCreateGoalModal({ status: prefillStatus as 'active' | 'completed' | 'abandoned' });
+        } else {
+          view.modalHelper.showCreateGoalModal();
+        }
+      });
+    });
+
+    // 看板列添加按钮（事件委托）
+    content.querySelectorAll('.al-add-goal-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const el = e.currentTarget as HTMLElement;
+        const prefillLevel = el.getAttribute('data-prefill-level');
+        const prefillStatus = el.getAttribute('data-prefill-status');
+        if (prefillLevel) {
+          view.modalHelper.showCreateGoalModal({ level: parseInt(prefillLevel) });
+        } else if (prefillStatus) {
+          view.modalHelper.showCreateGoalModal({ status: prefillStatus });
+        } else {
+          view.modalHelper.showCreateGoalModal();
+        }
+      });
+    });
+
+    // 筛选事件
+    content.querySelector('#al-toggle-filter-builder')?.addEventListener('click', () => {
+      view.tempShowFilterBuilder = !view.tempShowFilterBuilder;
+      view.render();
+    });
+
+    content.querySelector('#al-filter-save')?.addEventListener('click', () => {
+      view.updateActiveTabFilters(view.tempFilterConditions, view.tempFilterLogic);
+      new Notice('筛选条件已保存');
+    });
+
+    content.querySelector('#al-filter-clear')?.addEventListener('click', () => {
+      view.tempFilterConditions = [];
+      view.tempFilterLogic = 'and';
+      view.tempShowFilterBuilder = false;
+      view.updateActiveTabFilters([], 'and');
+      view.render();
+    });
+
+    content.querySelector('#al-add-filter-condition')?.addEventListener('click', () => {
+      view.tempFilterConditions.push({
+        id: view.generateFilterId(),
+        field: 'A-title',
+        operator: 'contains',
+        value: ''
+      });
+      view.render();
+    });
+
+    // 条件逻辑切换
+    content.querySelectorAll('.al-filter-logic-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const logic = (e.currentTarget as HTMLElement).getAttribute('data-logic') as FilterLogic;
+        if (logic) {
+          view.tempFilterLogic = logic;
+          view.render();
+        }
+      });
+    });
+
+    // 字段选择变化
+    content.querySelectorAll('.al-filter-field-select').forEach(select => {
+      select.addEventListener('change', (e) => {
+        const conditionId = (e.currentTarget as HTMLElement).closest('.al-filter-condition')?.getAttribute('data-condition-id');
+        if (conditionId) {
+          const newField = (e.target as HTMLSelectElement).value;
+          view.filterHelper.updateFilterCondition(conditionId, { field: newField });
+          view.render();
+        }
+      });
+    });
+
+    // 操作符变化
+    content.querySelectorAll('.al-filter-operator-select').forEach(select => {
+      select.addEventListener('change', (e) => {
+        const conditionId = (e.currentTarget as HTMLElement).closest('.al-filter-condition')?.getAttribute('data-condition-id');
+        if (conditionId) {
+          const newOperator = (e.target as HTMLSelectElement).value as FilterOperator;
+          view.filterHelper.updateFilterCondition(conditionId, { operator: newOperator });
+          view.render();
+        }
+      });
+    });
+
+    // 值输入变化
+    content.querySelectorAll('.al-filter-value-input, .al-filter-value-select').forEach(input => {
+      input.addEventListener('change', (e) => {
+        const conditionId = (e.currentTarget as HTMLElement).getAttribute('data-condition-id');
+        const yearPart = (e.currentTarget as HTMLElement).getAttribute('data-year-part');
+
+        if (conditionId) {
+          // 处理年份区间的特殊情况
+          if (yearPart) {
+            const condition = view.tempFilterConditions.find(c => c.id === conditionId);
+            if (condition) {
+              const currentValue = condition.value ? String(condition.value).split(',') : ['', ''];
+              const newYear = (e.target as HTMLSelectElement).value;
+
+              if (yearPart === 'start') {
+                currentValue[0] = newYear;
+              } else {
+                currentValue[1] = newYear;
+              }
+
+              // 只有当两个值都有时才更新
+              if (currentValue[0] && currentValue[1]) {
+                view.filterHelper.updateFilterCondition(conditionId, { value: currentValue.join(',') });
+              }
+            }
+          } else {
+            const newValue = (e.target as HTMLInputElement | HTMLSelectElement).value;
+            view.filterHelper.updateFilterCondition(conditionId, { value: newValue || null });
+          }
+        }
+      });
+    });
+
+    // 删除条件
+    content.querySelectorAll('.al-filter-remove-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const conditionId = (e.currentTarget as HTMLElement).getAttribute('data-condition-id');
+        if (conditionId) {
+          view.filterHelper.removeFilterCondition(conditionId);
+        }
+      });
+    });
+
+    // Task actions
+    content.querySelector('#al-complete-task')?.addEventListener('click', async () => { if (view.selectedTaskId) { await view.plugin.getTaskManager().completeTask(view.selectedTaskId); view.loadAndRender(); } });
+    content.querySelector('#al-uncomplete-task')?.addEventListener('click', async () => { if (view.selectedTaskId) { await view.plugin.getTaskManager().updateTask(view.selectedTaskId, { status: 'pending' }); view.loadAndRender(); } });
+    content.querySelector('#al-delete-task-btn')?.addEventListener('click', async () => { if (view.selectedTaskId && confirm('确定要删除这个任务吗？')) { await view.plugin.getTaskManager().deleteTask(view.selectedTaskId); view.currentView = 'dashboard'; view.selectedTaskId = null; view.loadAndRender(); } });
+
+    // Task checkbox clicks
+    content.querySelectorAll('.task-list-item-checkbox[data-task-id]').forEach(checkbox => { checkbox.addEventListener('click', async (e) => { e.stopPropagation(); }); checkbox.addEventListener('change', async (e) => { e.stopPropagation(); const taskId = (e.target as HTMLInputElement).getAttribute('data-task-id'); if (taskId) { await this.toggleTaskStatus(taskId); } }); });
+
+    // Field settings button
+    content.querySelector('#al-open-field-settings')?.addEventListener('click', () => view.modalHelper.showFieldSettingsModal());
+
+    // Board drag and drop
+    view.boardRenderer.bindBoardDragEvents(content);
+  }
+
+  async toggleTaskStatus(taskId: string): Promise<void> {
+    const view = this.view;
+    const task = view.plugin.getTaskManager().getTask(taskId);
+    if (!task) return;
+    try { if (task['A-status'] === 'completed') { await view.plugin.getTaskManager().updateTask(taskId, { status: 'pending' }); } else { await view.plugin.getTaskManager().completeTask(taskId); } view.loadAndRender(); } catch (error) { new Notice('更新失败: ' + (error as Error).message); }
+  }
+
+  async loadGoalReferences(): Promise<void> {
+    const view = this.view;
+    if (view.currentView !== 'goal-detail' || !view.selectedGoalId) {
+      return;
+    }
+
+    const container = view.contentEl.querySelector('#al-references-container');
+    const contentEl = view.contentEl.querySelector('#al-references-content');
+    const countEl = view.contentEl.querySelector('#al-references-count');
+
+    if (!container || !contentEl || !countEl) {
+      return;
+    }
+
+    try {
+      const references = await view.plugin.getGoalManager().getGoalReferences(view.selectedGoalId);
+      const goal = view.getGoal(view.selectedGoalId);
+      const goalTitle = goal ? goal['A-title'] : '';
+
+      countEl.textContent = references.length.toString();
+
+      if (references.length === 0) {
+        contentEl.innerHTML = `<div class="al-detail-references-empty"><span class="al-empty-text">暂无引用记录</span></div>`;
+        return;
+      }
+
+      const referencesHtml = references.map(ref => {
+        let lineContent = ref.lineContent;
+        if (goalTitle) {
+          lineContent = lineContent.replace(new RegExp(goalTitle, 'g'), `<span class="al-reference-highlight">${goalTitle}</span>`);
+        }
+
+        return `
+          <div class="al-detail-reference-item" data-file-path="${ref.filePath}">
+            <div class="al-reference-file-info">
+              <span class="al-reference-file-icon">📄</span>
+              <span class="al-reference-file-name">${ref.fileName}</span>
+              <span class="al-reference-line-number">${ref.lineNumber}</span>
+            </div>
+            <div class="al-reference-content">${lineContent}</div>
+          </div>
+        `;
+      }).join('');
+
+      contentEl.innerHTML = referencesHtml;
+
+      contentEl.querySelectorAll('.al-detail-reference-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const filePath = item.getAttribute('data-file-path');
+          if (filePath) {
+            const file = view.plugin.app.vault.getAbstractFileByPath(filePath);
+            if (file) {
+              view.plugin.app.workspace.openLinkText(file.path, '');
+            }
+          }
+        });
+      });
+    } catch (error) {
+      console.error('加载引用记录失败:', error);
+      contentEl.innerHTML = `<div class="al-detail-references-error">加载引用记录失败</div>`;
+    }
+  }
+
+  async loadTaskReferences(): Promise<void> {
+    const view = this.view;
+    if (view.currentView !== 'task-detail' || !view.selectedTaskId) {
+      return;
+    }
+
+    const loadingEl = view.contentEl.querySelector('#al-task-references-loading');
+    const contentEl = view.contentEl.querySelector('#al-task-references-container');
+    const countEl = view.contentEl.querySelector('#al-task-references-count');
+
+    if (!loadingEl || !contentEl || !countEl) {
+      return;
+    }
+
+    try {
+      const references = await view.plugin.getTaskManager().getTaskReferences(view.selectedTaskId);
+      const task = view.getTask(view.selectedTaskId);
+      const taskTitle = task ? task['A-title'] : '';
+
+      countEl.textContent = references.length.toString();
+      loadingEl.remove();
+
+      if (references.length === 0) {
+        contentEl.innerHTML = `<div class="al-detail-references-empty"><span class="al-empty-text">暂无引用记录</span></div>`;
+        return;
+      }
+
+      const referencesHtml = references.map(ref => {
+        let lineContent = ref.lineContent;
+        if (taskTitle) {
+          lineContent = lineContent.replace(new RegExp(taskTitle, 'g'), `<span class="al-reference-highlight">${taskTitle}</span>`);
+        }
+
+        return `
+          <div class="al-detail-reference-item" data-file-path="${ref.filePath}">
+            <div class="al-reference-file-info">
+              <span class="al-reference-file-icon">📄</span>
+              <span class="al-reference-file-name">${ref.fileName}</span>
+              <span class="al-reference-line-number">${ref.lineNumber}</span>
+            </div>
+            <div class="al-reference-content">${lineContent}</div>
+          </div>
+        `;
+      }).join('');
+
+      contentEl.innerHTML = referencesHtml;
+
+      contentEl.querySelectorAll('.al-detail-reference-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const filePath = item.getAttribute('data-file-path');
+          if (filePath) {
+            const file = view.plugin.app.vault.getAbstractFileByPath(filePath);
+            if (file) {
+              view.plugin.app.workspace.openLinkText(file.path, '');
+            }
+          }
+        });
+      });
+    } catch (error) {
+      console.error('加载引用记录失败:', error);
+      loadingEl.remove();
+      contentEl.innerHTML = `<div class="al-detail-references-error">加载引用记录失败</div>`;
+    }
+  }
+}
