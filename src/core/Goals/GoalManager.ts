@@ -155,7 +155,16 @@ export class GoalManager {
    * 创建目标
    */
   async createGoal(dto: CreateGoalDTO): Promise<Goal> {
-    const id = dto.title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 100);
+    // 生成安全的文件名校验
+    const safeTitle = dto.title.replace(/[\\/:*?"<>|\s\n\r\t]/g, '_').trim();
+    if (!safeTitle) {
+      throw new Error('目标名称不能为空');
+    }
+    
+    // 生成唯一ID（用于内部标识，不作为文件名）
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 6);
+    const id = `${timestamp}${random}`;
     const now = new Date().toISOString().split('T')[0];
     
     const goal: Goal = {
@@ -176,7 +185,8 @@ export class GoalManager {
     };
     
     const content = this.generateGoalContent(goal, dto.description);
-    await this.storage.writeFile(this.storage.getGoalPath(id), content);
+    // 使用标题作为文件名
+    await this.storage.writeFile(this.storage.getGoalPathByTitle(safeTitle), content);
     
     this.goals.set(id, goal);
     
@@ -236,6 +246,7 @@ export class GoalManager {
     if (!goal) return null;
     
     const now = new Date().toISOString().split('T')[0];
+    const oldTitle = goal['A-title'];
     
     if (dto.title !== undefined) goal['A-title'] = dto.title;
     if (dto.description !== undefined) goal['A-description'] = dto.description || null;
@@ -258,10 +269,21 @@ export class GoalManager {
     
     goal['A-updated'] = now;
     
-    const content = await this.storage.readFile(this.storage.getGoalPath(id));
+    // 如果标题变了，需要重命名文件
+    const titleChanged = dto.title !== undefined && dto.title !== oldTitle;
+    
+    const content = await this.storage.readFile(this.storage.getGoalPathByTitle(oldTitle));
     if (content) {
       const updatedContent = this.updateGoalInContent(content, goal);
-      await this.storage.writeFile(this.storage.getGoalPath(id), updatedContent);
+      if (titleChanged) {
+        // 删除旧文件，创建新文件
+        const oldSafeTitle = oldTitle.replace(/[\\/:*?"<>|\s\n\r\t]/g, '_').trim();
+        const newSafeTitle = goal['A-title'].replace(/[\\/:*?"<>|\s\n\r\t]/g, '_').trim();
+        await this.storage.deleteFile(this.storage.getGoalPathByTitle(oldSafeTitle));
+        await this.storage.writeFile(this.storage.getGoalPathByTitle(newSafeTitle), updatedContent);
+      } else {
+        await this.storage.writeFile(this.storage.getGoalPathByTitle(oldTitle), updatedContent);
+      }
     }
     
     return goal;
@@ -390,7 +412,8 @@ export class GoalManager {
     const goal = this.goals.get(id);
     if (!goal) return;
     
-    await this.storage.deleteFile(this.storage.getGoalPath(id));
+    const safeTitle = goal['A-title'].replace(/[\\/:*?"<>|\s\n\r\t]/g, '_').trim();
+    await this.storage.deleteFile(this.storage.getGoalPathByTitle(safeTitle));
     
     this.goals.delete(id);
     
@@ -431,7 +454,8 @@ export class GoalManager {
     const goal = this.goals.get(id);
     if (!goal) return null;
     
-    return this.storage.getGoalFile(id);
+    const safeTitle = goal['A-title'].replace(/[\\/:*?"<>|\s\n\r\t]/g, '_').trim();
+    return this.storage.getGoalFileByTitle(safeTitle);
   }
   
   /**
@@ -536,7 +560,11 @@ export class GoalManager {
     lineContent: string;
     lineNumber: number;
   }>> {
-    const backlinks = await this.storage.getBacklinksForGoal(goalId);
+    const goal = this.goals.get(goalId);
+    if (!goal) return [];
+    
+    const safeTitle = goal['A-title'].replace(/[\\/:*?"<>|\s\n\r\t]/g, '_').trim();
+    const backlinks = await this.storage.getBacklinksForGoal(safeTitle);
     const result: Array<{
       fileName: string;
       filePath: string;

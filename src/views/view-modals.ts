@@ -642,29 +642,50 @@ class CreateGoalModal extends Modal {
     const footer = contentEl.createDiv('al-form-actions');
     footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;margin-top:24px;';
     const cancelBtn = footer.createEl('button', { text: '取消', type: 'button' });
-    const submitBtn = footer.createEl('button', { text: '创建', type: 'submit', cls: 'mod-cta' });
+    const submitBtn = footer.createEl('button', { text: '创建', cls: 'mod-cta' });
 
     cancelBtn.addEventListener('click', () => this.close());
 
-    form.addEventListener('submit', async (e) => {
-      e.preventDefault();
+    const handleSubmit = async () => {
       const title = titleInput.value.trim();
       const level = Number(levelSelect.value) as GoalLevel;
       const parent = parentSelect.value || null;
       const due = dueInput.value || null;
+
+      console.log('[CreateGoalModal] Submit clicked, title:', title);
 
       if (!title) {
         new Notice('请输入目标名称');
         return;
       }
 
+      submitBtn.disabled = true;
+      submitBtn.textContent = '创建中...';
+
       try {
-        await this.view.plugin.getGoalManager().createGoal({ title, level, due, parent });
+        console.log('[CreateGoalModal] Creating goal:', { title, level, parent, due });
+        const result = await this.view.plugin.getGoalManager().createGoal({ title, level, due, parent });
+        console.log('[CreateGoalModal] Goal created:', result);
         new Notice('目标创建成功！');
         this.close();
         this.view.loadAndRender();
       } catch (error) {
-        new Notice('创建失败: ' + (error as Error).message);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('[CreateGoalModal] Create goal error:', error);
+        new Notice('创建失败: ' + errorMessage);
+        submitBtn.disabled = false;
+        submitBtn.textContent = '创建';
+      }
+    };
+
+    // 绑定按钮点击事件
+    submitBtn.addEventListener('click', handleSubmit);
+
+    // 绑定表单回车提交
+    titleInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        handleSubmit();
       }
     });
 

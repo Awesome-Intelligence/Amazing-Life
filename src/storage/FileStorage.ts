@@ -234,12 +234,12 @@ export class FileStorage {
   /**
    * 获取引用目标文件的反向链接
    */
-  async getBacklinksForGoal(goalId: string): Promise<Array<{
+  async getBacklinksForGoal(goalTitle: string): Promise<Array<{
     file: TFile;
     content: string;
     lines: number[];
   }>> {
-    const goalPath = this.getGoalPath(goalId);
+    const goalPath = this.getGoalPathByTitle(goalTitle);
     const goalFile = this.app.vault.getAbstractFileByPath(goalPath);
     
     if (!(goalFile instanceof TFile)) {
