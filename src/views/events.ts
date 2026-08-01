@@ -617,7 +617,31 @@ export class EventManager {
     // Task actions
     content.querySelector('#al-complete-task')?.addEventListener('click', async () => { if (view.selectedTaskId) { await view.plugin.getTaskManager().completeTask(view.selectedTaskId); view.loadAndRender(); } });
     content.querySelector('#al-uncomplete-task')?.addEventListener('click', async () => { if (view.selectedTaskId) { await view.plugin.getTaskManager().updateTask(view.selectedTaskId, { status: 'pending' }); view.loadAndRender(); } });
-    content.querySelector('#al-delete-task-btn')?.addEventListener('click', async () => { if (view.selectedTaskId && confirm('确定要删除这个任务吗？')) { await view.plugin.getTaskManager().deleteTask(view.selectedTaskId); view.currentView = 'dashboard'; view.selectedTaskId = null; view.loadAndRender(); } });
+    content.querySelector('#al-delete-task-btn')?.addEventListener('click', () => {
+      if (!view.selectedTaskId) return;
+      const task = view.plugin.getTaskManager().getTask(view.selectedTaskId);
+      const taskTitle = task?.['A-title'] || '此任务';
+      new DeleteConfirmModal(
+        view.plugin,
+        taskTitle,
+        async () => {
+          try {
+            await view.plugin.getTaskManager().deleteTask(view.selectedTaskId!);
+            new Notice('任务已删除');
+            view.currentView = 'dashboard';
+            view.selectedTaskId = null;
+            view.loadAndRender();
+          } catch (error) {
+            new Notice('删除失败: ' + (error as Error).message);
+          }
+        },
+        {
+          title: '删除任务',
+          message: `确定要删除任务「${taskTitle}」吗？此操作不可撤销。`,
+          confirmText: '删除'
+        }
+      ).open();
+    });
 
     // Task checkbox clicks
     content.querySelectorAll('.task-list-item-checkbox[data-task-id]').forEach(checkbox => { checkbox.addEventListener('click', async (e) => { e.stopPropagation(); }); checkbox.addEventListener('change', async (e) => { e.stopPropagation(); const taskId = (e.target as HTMLInputElement).getAttribute('data-task-id'); if (taskId) { await this.toggleTaskStatus(taskId); } }); });

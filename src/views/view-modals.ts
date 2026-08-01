@@ -15,6 +15,7 @@
 
 import { Modal, Notice, Menu } from 'obsidian';
 import type { DashboardView } from './DashboardView';
+import { DeleteConfirmModal } from './modals';
 import {
   Goal,
   GoalLevel,
@@ -368,7 +369,7 @@ class FieldSettingsModal extends Modal {
 
     // 按钮区域
     const footer = contentEl.createDiv('al-modal-footer');
-    const resetBtn = footer.createEl('button', { text: '恢复默认', cls: 'al-btn' });
+    const resetBtn = footer.createEl('button', { text: '恢复默认' });
     const saveBtn = footer.createEl('button', { text: '保存', cls: 'mod-cta' });
 
     resetBtn.addEventListener('click', () => this.resetFields());
@@ -475,8 +476,7 @@ class DeleteGoalWithChildrenModal extends Modal {
     });
 
     const footer = contentEl.createDiv('al-modal-footer');
-    const confirmBtn = footer.createEl('button', { text: '确认删除', cls: 'mod-cta' });
-    confirmBtn.style.cssText = 'background:var(--text-red);color:#fff;border:none;';
+    const confirmBtn = footer.createEl('button', { text: '确认删除', cls: 'mod-warning' });
 
     confirmBtn.addEventListener('click', async () => {
       if (selectedMode === 'cancel') {
@@ -556,10 +556,11 @@ class ParentSelectorModal extends Modal {
     });
 
     const footer = contentEl.createDiv('al-modal-footer');
-    const cancelBtn = footer.createEl('button', { text: '取消', cls: 'al-btn-secondary' });
+    const cancelBtn = footer.createEl('button', { text: '取消' });
     const saveBtn = footer.createEl('button', { text: '保存', cls: 'mod-cta' });
 
     cancelBtn.addEventListener('click', () => this.close());
+
     saveBtn.addEventListener('click', async () => {
       const parentId = select.value || null;
       try {
@@ -640,7 +641,7 @@ class CreateGoalModal extends Modal {
 
     const footer = contentEl.createDiv('al-form-actions');
     footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;margin-top:24px;';
-    const cancelBtn = footer.createEl('button', { text: '取消', type: 'button', cls: 'al-btn' });
+    const cancelBtn = footer.createEl('button', { text: '取消', type: 'button' });
     const submitBtn = footer.createEl('button', { text: '创建', type: 'submit', cls: 'mod-cta' });
 
     cancelBtn.addEventListener('click', () => this.close());
@@ -772,26 +773,34 @@ class TaskDetailModal extends Modal {
     const footer = contentEl.createDiv('al-modal-footer');
     footer.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-top:1px solid var(--border-color);';
 
-    const deleteBtn = footer.createEl('button', { text: '🗑️ 删除', cls: 'al-btn-danger' });
-    deleteBtn.style.cssText = 'background:transparent;border:1px solid var(--text-red);color:var(--text-red);padding:8px 16px;border-radius:6px;cursor:pointer;';
+    const deleteBtn = footer.createEl('button', { text: '删除', cls: 'mod-warning' });
 
     const rightBtns = footer.createDiv();
     rightBtns.style.cssText = 'display:flex;gap:10px;';
-    const cancelBtn = rightBtns.createEl('button', { text: '取消', cls: 'al-btn-secondary' });
-    cancelBtn.style.cssText = 'background:transparent;border:1px solid var(--border-color);color:var(--text-secondary);padding:8px 16px;border-radius:6px;cursor:pointer;';
-    const saveBtn = rightBtns.createEl('button', { text: '💾 保存', cls: 'mod-cta' });
+    const cancelBtn = rightBtns.createEl('button', { text: '取消' });
+    const saveBtn = rightBtns.createEl('button', { text: '保存', cls: 'mod-cta' });
 
     deleteBtn.addEventListener('click', async () => {
-      if (confirm('确定要删除这个任务吗？')) {
-        try {
-          await this.view.plugin.getTaskManager().deleteTask(this.taskId);
-          new Notice('任务已删除');
-          this.close();
-          this.view.loadAndRender();
-        } catch (error) {
-          new Notice('删除失败: ' + (error as Error).message);
+      const taskTitle = titleInput.value.trim() || '此任务';
+      new DeleteConfirmModal(
+        this.view.plugin,
+        taskTitle,
+        async () => {
+          try {
+            await this.view.plugin.getTaskManager().deleteTask(this.taskId);
+            new Notice('任务已删除');
+            this.close();
+            this.view.loadAndRender();
+          } catch (error) {
+            new Notice('删除失败: ' + (error as Error).message);
+          }
+        },
+        {
+          title: '删除任务',
+          message: `确定要删除任务「${taskTitle}」吗？此操作不可撤销。`,
+          confirmText: '删除'
         }
-      }
+      ).open();
     });
 
     cancelBtn.addEventListener('click', () => this.close());
@@ -890,7 +899,7 @@ class CreateTaskModal extends Modal {
 
     const footer = form.createDiv('al-form-actions');
     footer.style.cssText = 'display:flex;justify-content:flex-end;gap:10px;margin-top:24px;';
-    const cancelBtn = footer.createEl('button', { text: '取消', type: 'button', cls: 'al-btn' });
+    const cancelBtn = footer.createEl('button', { text: '取消', type: 'button' });
     const submitBtn = footer.createEl('button', { text: '创建', type: 'submit', cls: 'mod-cta' });
 
     cancelBtn.addEventListener('click', () => this.close());
@@ -982,7 +991,7 @@ class AddCustomFieldModal extends Modal {
     });
 
     const footer = contentEl.createDiv('al-modal-footer');
-    const cancelBtn = footer.createEl('button', { text: '取消', cls: 'al-btn-secondary' });
+    const cancelBtn = footer.createEl('button', { text: '取消' });
     const saveBtn = footer.createEl('button', { text: '保存', cls: 'mod-cta' });
 
     cancelBtn.addEventListener('click', () => this.close());

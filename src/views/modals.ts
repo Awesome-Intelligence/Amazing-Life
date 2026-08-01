@@ -12,30 +12,44 @@ import { Modal, Notice, TFile } from 'obsidian';
 import AmazingLife from '../main';
 
 /**
- * 删除目标确认弹窗
+ * 删除确认弹窗（Obsidian 原生 Modal 风格）
+ *
+ * 默认用于删除目标，可通过 options 自定义标题/文案/按钮文字，
+ * 以复用于任务删除等场景。
  */
 export class DeleteConfirmModal extends Modal {
   private goalTitle: string;
   private onConfirm: () => void;
+  private title: string;
+  private message: string;
+  private confirmText: string;
 
-  constructor(plugin: AmazingLife, goalTitle: string, onConfirm: () => void) {
+  constructor(
+    plugin: AmazingLife,
+    goalTitle: string,
+    onConfirm: () => void,
+    options?: { title?: string; message?: string; confirmText?: string }
+  ) {
     super(plugin.app);
     this.goalTitle = goalTitle;
     this.onConfirm = onConfirm;
+    this.title = options?.title ?? '删除目标';
+    this.message = options?.message ?? `确定要删除目标「${this.goalTitle}」吗？此操作不可撤销。`;
+    this.confirmText = options?.confirmText ?? '删除';
   }
 
   onOpen() {
     const { contentEl } = this;
     contentEl.empty();
 
-    contentEl.createEl('h2', { text: '删除目标', cls: 'al-modal-header' });
+    contentEl.createEl('h2', { text: this.title, cls: 'al-modal-header' });
 
     const body = contentEl.createDiv('al-modal-body');
-    body.createEl('p', { text: `确定要删除目标「${this.goalTitle}」吗？此操作不可撤销。` });
+    body.createEl('p', { text: this.message });
 
     const footer = contentEl.createDiv('al-modal-footer');
-    const cancelBtn = footer.createEl('button', { text: '取消', cls: 'al-btn al-btn-secondary' });
-    const deleteBtn = footer.createEl('button', { text: '删除', cls: 'al-btn al-btn-danger' });
+    const cancelBtn = footer.createEl('button', { text: '取消' });
+    const deleteBtn = footer.createEl('button', { text: this.confirmText, cls: 'mod-warning' });
 
     cancelBtn.addEventListener('click', () => this.close());
     deleteBtn.addEventListener('click', () => {
@@ -233,20 +247,17 @@ export class CoverImagePickerModal extends Modal {
     const footer = contentEl.createDiv('al-modal-footer');
 
     if (this.currentCover) {
-      const removeBtn = footer.createEl('button', { text: '移除封面', cls: 'al-btn al-btn-danger' });
+      const removeBtn = footer.createEl('button', { text: '移除封面', cls: 'mod-warning' });
       removeBtn.addEventListener('click', () => {
         this.onRemove();
         this.close();
       });
     }
 
-    const cancelBtn = footer.createEl('button', { text: '取消', cls: 'al-btn al-btn-secondary' });
+    const cancelBtn = footer.createEl('button', { text: '取消' });
     cancelBtn.addEventListener('click', () => this.close());
 
-    const confirmBtn = footer.createEl('button', { text: '确认', cls: 'al-btn' });
-    confirmBtn.style.background = 'var(--interactive-accent)';
-    confirmBtn.style.color = '#fff';
-    confirmBtn.style.border = 'none';
+    const confirmBtn = footer.createEl('button', { text: '确认', cls: 'mod-cta' });
     confirmBtn.addEventListener('click', () => {
       const url = urlInput.value.trim();
       if (url) {
