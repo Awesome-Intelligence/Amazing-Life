@@ -2,72 +2,221 @@
  * Dashboard View - Board Renderer
  *
  * 从 DashboardView 类中抽出的看板视图渲染与拖拽逻辑：
- * - renderBoardView：按层级/状态分组渲染看板列
+ * - renderBoardView：按动态字段分组渲染看板列
  * - renderGoalsForBoard：渲染看板卡片
  * - bindBoardDragEvents / startGoalDrag / endGoalDrag / handleGoalDrop：拖拽交互
+ * - getGroupByFields：获取所有可用的分组字段（包括自定义字段）
  *
  * 通过组合方式持有 DashboardView 实例引用，访问共享状态。
  */
 
 import { Notice } from 'obsidian';
 import type { DashboardView } from '../DashboardView';
-import { Goal, Task, GoalLevel } from '../../types';
+import { Goal, Task, GoalLevel, GroupByField, GOAL_GROUP_BY_FIELDS } from '../../types';
 
 export class BoardRenderer {
   constructor(private view: DashboardView) {}
 
+  /**
+   * 获取所有可用的分组字段（包括动态生成和自定义字段）
+   */
+  getGroupByFields(): GroupByField[] {
+    const fields: GroupByField[] = [...GOAL_GROUP_BY_FIELDS];
+    
+    // 动态生成父目标选项
+    const parentField = fields.find(f => f.field === 'A-parent');
+    if (parentField) {
+      const allGoals = this.view.plugin.getGoalManager().getAllGoals();
+      const uniqueParents = [...new Set(allGoals.filter(g => g['A-parent']).map(g => g['A-parent']).filter((p): p is string => p !== null))];
+      parentField.options = uniqueParents.map(parentId => {
+        const parentGoal = allGoals.find(g => g['A-id'] === parentId);
+        return {
+          value: parentId,
+          label: parentGoal ? parentGoal['A-title'] : parentId
+        };
+      });
+    }
+    
+    // 从自定义字段中添加可分组的字段
+    const customFields = this.view.plugin.getSettings().customGoalFields || [];
+    for (const cf of customFields) {
+      // 跳过已在标准字段中定义的
+      if (fields.some(f => f.field === cf.key)) continue;
+      
+      // 根据自定义字段类型添加分组配置
+      if (cf.type === 'select' && cf.options) {
+        fields.push({
+          field: cf.key,
+          label: cf.label,
+          type: 'select',
+          draggable: true,
+          targetField: cf.key,
+          options: cf.options.split(',').map(opt => ({ value: opt.trim(), label: opt.trim() }))
+        });
+      } else if (cf.type === 'number') {
+        fields.push({
+          field: cf.key,
+          label: cf.label,
+          type: 'range',
+          draggable: true,
+          targetField: cf.key,
+          ranges: [
+            { min: 0, max: 33, label: '低 (0-33)' },
+            { min: 33, max: 66, label: '中 (33-66)' },
+            { min: 66, max: 101, label: '高 (66-100)' }
+          ]
+        });
+      } else if (cf.type === 'date') {
+        fields.push({
+          field: cf.key,
+          label: cf.label,
+          type: 'date',
+          draggable: true,
+          targetField: cf.key,
+          dateMode: 'year'
+        });
+      }
+    }
+    
+    return fields;
+  }
+
+  /**
+   * 根据分组字段获取列配置
+   */
+  getColumnsForGroupBy(groupByField: GroupByField, allGoals: Goal[]): { value: string; label: string; color?: string; goals: Goal[] }[] {
+    if (groupByField.type === 'select' && groupByField.options) {
+      return groupByField.options.map(opt => ({
+        value: opt.value,
+        label: opt.label,
+        color: opt.color,
+        goals: allGoals.filter(g => String(g[groupByField.field] || '') === opt.value)
+      }));
+    }
+    
+    if (groupByField.type === 'range' && groupByField.ranges) {
+      return groupByField.ranges.map(range => ({
+        value: `${range.min}-${range.max}`,
+        label: range.label,
+        goals: allGoals.filter(g => {
+          const val = g[groupByField.field] as number;
+          return val >= range.min && val < range.max;
+        })
+      }));
+    }
+    
+    if (groupByField.type === 'date') {
+      const dateField = groupByField.field.replace('-year', '').replace('-month', '');
+      const mode = groupByField.dateMode || 'year';
+      
+      // 收集所有唯一的日期值
+      const dateValues = new Map<string, Goal[]>();
+      
+      for (const goal of allGoals) {
+        const dateVal = goal[dateField] as string;
+        if (!dateVal) {
+          const key = '无日期';
+          if (!dateValues.has(key)) dateValues.set(key, []);
+          dateValues.get(key)!.push(goal);
+        } else {
+          const date = new Date(dateVal);
+          if (isNaN(date.getTime())) {
+            const key = '无效日期';
+            if (!dateValues.has(key)) dateValues.set(key, []);
+            dateValues.get(key)!.push(goal);
+          } else {
+            let key: string;
+            if (mode === 'year') {
+              key = date.getFullYear().toString();
+            } else {
+              key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+            }
+            if (!dateValues.has(key)) dateValues.set(key, []);
+            dateValues.get(key)!.push(goal);
+          }
+        }
+      }
+      
+      // 排序并返回
+      const sortedKeys = [...dateValues.keys()].sort().reverse();
+      return sortedKeys.map(key => ({
+        value: key,
+        label: key,
+        goals: dateValues.get(key)!
+      }));
+    }
+    
+    return [];
+  }
+
+  /**
+   * 获取目标对应的分组值
+   */
+  getGoalGroupValue(goal: Goal, groupByField: GroupByField): string {
+    if (groupByField.type === 'select') {
+      return String(goal[groupByField.field] || '');
+    }
+    
+    if (groupByField.type === 'range' && groupByField.ranges) {
+      const val = goal[groupByField.field] as number;
+      for (const range of groupByField.ranges) {
+        if (val >= range.min && val < range.max) {
+          return `${range.min}-${range.max}`;
+        }
+      }
+      return 'other';
+    }
+    
+    if (groupByField.type === 'date') {
+      const dateField = groupByField.field.replace('-year', '').replace('-month', '');
+      const dateVal = goal[dateField] as string;
+      if (!dateVal) return '无日期';
+      
+      const date = new Date(dateVal);
+      if (isNaN(date.getTime())) return '无效日期';
+      
+      if (groupByField.dateMode === 'year') {
+        return date.getFullYear().toString();
+      } else {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+      }
+    }
+    
+    return '';
+  }
+
   renderBoardView(allGoals: Goal[], allTasks: Task[]): string {
     const currentFilters = this.view.getCurrentFilters();
-    const boardGroupBy = currentFilters.groupBy;
-
-    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
-    const levelColors: Record<number, string> = { 1: '#8B5CF6', 2: '#3B82F6', 3: '#6366F1', 4: '#22C55E' };
-    const statusNames: Record<string, string> = { 'active': '进行中', 'completed': '已完成', 'abandoned': '已放弃' };
-    const statusColors: Record<string, string> = { 'active': 'var(--text-blue)', 'completed': 'var(--text-green)', 'abandoned': 'var(--text-muted)' };
-
-    let columnsHtml = '';
-
-    if (boardGroupBy === 'level') {
-      // 按层级分组
-      columnsHtml = [1, 2, 3, 4].map(level => {
-        const goals = allGoals.filter(g => g['A-level'] === level);
-        return `<div class="al-board-column" data-column-type="level" data-column-value="${level}">
-          <div class="al-board-column-header">
-            <div class="al-board-column-title">
-              <span class="al-level-badge" style="background:${levelColors[level]};color:#fff;font-size:14px;font-weight:700;padding:4px 12px;border-radius:6px;display:inline-block;min-width:40px;text-align:center">${levelNames[level]}</span>
-            </div>
-            <span class="al-list-count">${goals.length}</span>
+    const boardGroupBy = currentFilters.groupBy || 'A-level';
+    
+    // 获取分组字段配置
+    const groupByFields = this.getGroupByFields();
+    const groupByField = groupByFields.find(f => f.field === boardGroupBy) || groupByFields[0];
+    
+    // 获取所有列
+    const columns = this.getColumnsForGroupBy(groupByField, allGoals);
+    
+    // 渲染列
+    const columnsHtml = columns.map(column => {
+      const headerStyle = column.color ? `border-bottom-color: ${column.color}` : '';
+      const headerBadgeStyle = column.color ? `background: ${column.color}` : '';
+      
+      return `<div class="al-board-column" data-column-type="${groupByField.field}" data-column-value="${column.value}">
+        <div class="al-board-column-header" ${column.color ? `style="border-bottom: 2px solid ${column.color}"` : ''}>
+          <div class="al-board-column-title">
+            ${column.color ? `<span class="al-status-dot" style="background: ${column.color}"></span>` : ''}
+            <span>${column.label}</span>
           </div>
-          <div class="al-board-column-body">
-            ${goals.length === 0 ? this.view.detailRenderer.renderEmpty('🎯', '暂无目标', '') : this.renderGoalsForBoard(goals, allTasks)}
-          </div>
-          <div class="al-board-column-footer">
-            <div class="al-add-goal-btn" data-prefill-level="${level}">+ 添加目标</div>
-          </div>
-        </div>`;
-      }).join('');
-    } else if (boardGroupBy === 'goalStatus') {
-      // 按目标状态分组
-      const statusOrder = ['active', 'completed', 'abandoned'];
-      columnsHtml = statusOrder.map(status => {
-        const goals = allGoals.filter(g => g['A-status'] === status);
-        return `<div class="al-board-column" data-column-type="goalStatus" data-column-value="${status}">
-          <div class="al-board-column-header">
-            <div class="al-board-column-title">
-              <span class="al-status-dot" style="background:${statusColors[status]}"></span>
-              <span>${statusNames[status]}</span>
-            </div>
-            <span class="al-list-count">${goals.length}</span>
-          </div>
-          <div class="al-board-column-body">
-            ${goals.length === 0 ? this.view.detailRenderer.renderEmpty('🎯', '暂无目标', '') : this.renderGoalsForBoard(goals, allTasks)}
-          </div>
-          <div class="al-board-column-footer">
-            <div class="al-add-goal-btn" data-prefill-status="${status}">+ 添加目标</div>
-          </div>
-        </div>`;
-      }).join('');
-    }
+          <span class="al-list-count">${column.goals.length}</span>
+        </div>
+        <div class="al-board-column-body">
+          ${column.goals.length === 0 ? '<div class="al-board-empty-text">暂无目标</div>' : this.renderGoalsForBoard(column.goals, allTasks)}
+        </div>
+        ${groupByField.draggable ? `<div class="al-board-column-footer">
+          <div class="al-add-goal-btn" data-prefill-group="${groupByField.field}" data-prefill-value="${column.value}">+ 添加目标</div>
+        </div>` : ''}
+      </div>`;
+    }).join('');
 
     return `
       <div class="al-board-view">${columnsHtml}</div>
@@ -146,6 +295,7 @@ export class BoardRenderer {
       columnEl.addEventListener('mouseenter', () => {
         if (this.view.draggingGoalId) {
           this.view.dropTargetColumn = (columnEl as HTMLElement).getAttribute('data-column-value');
+          this.view.dropTargetColumnType = (columnEl as HTMLElement).getAttribute('data-column-type');
           columnEl.classList.add('drop-target');
         }
       });
@@ -154,6 +304,7 @@ export class BoardRenderer {
         columnEl.classList.remove('drop-target');
         if (this.view.dropTargetColumn === (columnEl as HTMLElement).getAttribute('data-column-value')) {
           this.view.dropTargetColumn = null;
+          this.view.dropTargetColumnType = null;
         }
       });
     });
@@ -203,36 +354,68 @@ export class BoardRenderer {
     }
     this.view.draggingGoalId = null;
     this.view.dropTargetColumn = null;
+    this.view.dropTargetColumnType = null;
 
     // 移除所有列的 drop-target 类
     document.querySelectorAll('.drop-target').forEach(el => el.classList.remove('drop-target'));
   }
 
   async handleGoalDrop(): Promise<void> {
-    if (!this.view.draggingGoalId || !this.view.dropTargetColumn) return;
+    if (!this.view.draggingGoalId || !this.view.dropTargetColumn || !this.view.dropTargetColumnType) return;
 
     const goal = this.view.plugin.getGoalManager().getGoal(this.view.draggingGoalId);
     if (!goal) return;
 
-    const currentFilters = this.view.getCurrentFilters();
-    const columnType = currentFilters.groupBy;
+    // 获取分组字段配置
+    const groupByFields = this.getGroupByFields();
+    const groupByField = groupByFields.find(f => f.field === this.view.dropTargetColumnType);
+    
+    if (!groupByField) return;
+
+    // 检查是否支持拖拽更新
+    if (!groupByField.draggable) {
+      new Notice('该分组字段不支持拖拽更新');
+      return;
+    }
 
     try {
-      if (columnType === 'level') {
-        // 按层级分组：拖动目标到不同层级列，更新目标层级
-        const newLevel = parseInt(this.view.dropTargetColumn) as GoalLevel;
-        if (goal['A-level'] !== newLevel) {
-          await this.view.plugin.getGoalManager().updateGoal(this.view.draggingGoalId, { level: newLevel });
-          new Notice('目标已移动到新层级');
+      if (groupByField.type === 'select') {
+        // 对于 select 类型，直接使用列的值
+        let updateValue: any = this.view.dropTargetColumn;
+        
+        // 对于 A-level，需要转换为数字
+        if (groupByField.targetField === 'level') {
+          updateValue = parseInt(updateValue);
         }
-      } else if (columnType === 'goalStatus') {
-        // 按状态分组：拖动目标到不同状态列，更新目标状态
-        const newStatus = this.view.dropTargetColumn as 'active' | 'completed' | 'abandoned';
-        if (goal['A-status'] !== newStatus) {
-          await this.view.plugin.getGoalManager().updateGoal(this.view.draggingGoalId, { status: newStatus });
-          new Notice('目标状态已更新');
-        }
+        
+        await this.view.plugin.getGoalManager().updateGoal(this.view.draggingGoalId, {
+          [groupByField.targetField!]: updateValue
+        });
+        new Notice('目标已更新');
+        
+      } else if (groupByField.type === 'range') {
+        // 对于 range 类型，使用区间中值
+        const [min, max] = this.view.dropTargetColumn.split('-').map(Number);
+        const newValue = Math.round((min + max) / 2);
+        
+        await this.view.plugin.getGoalManager().updateGoal(this.view.draggingGoalId, {
+          [groupByField.targetField!]: newValue
+        });
+        new Notice(`进度已更新为 ${newValue}%`);
+        
+      } else if (groupByField.type === 'date') {
+        // 对于 date 类型，更新日期字段
+        const dateField = groupByField.field.replace('-year', '').replace('-month', '');
+        const newDate = groupByField.dateMode === 'year' 
+          ? `${this.view.dropTargetColumn}-01-01`
+          : `${this.view.dropTargetColumn}-01`;
+        
+        await this.view.plugin.getGoalManager().updateGoal(this.view.draggingGoalId, {
+          [dateField]: newDate
+        });
+        new Notice('日期已更新');
       }
+      
       this.view.loadAndRender();
     } catch (error) {
       new Notice('更新失败');

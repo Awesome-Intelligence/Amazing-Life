@@ -244,10 +244,129 @@ export interface ViewTab {
   id: string;
   name: string;               // 用户自定义名称
   type: ViewTabType;          // 视图类型
-  groupBy?: 'level' | 'goalStatus' | 'parent';  // 看板分组方式
+  groupBy?: string;           // 看板分组方式（字段名）
   filters: FilterCondition[];  // 筛选条件
   filterLogic: FilterLogic;    // 筛选逻辑
 }
+
+// 分组选项配置
+export interface GroupByOption {
+  value: string;              // 选项值
+  label: string;              // 显示名称
+  color?: string;             // 可选颜色
+}
+
+// 分组区间配置
+export interface GroupByRange {
+  min: number;                // 最小值（包含）
+  max: number;                // 最大值（不包含）
+  label: string;              // 显示名称
+}
+
+// 分组字段定义
+export interface GroupByField {
+  field: string;              // 字段键名（如 'A-level' 或自定义字段 key）
+  label: string;              // 显示名称
+  type: 'select' | 'range' | 'date';  // 分组类型
+  draggable?: boolean;        // 是否支持拖拽更新
+  // select 类型：预定义选项
+  options?: GroupByOption[];
+  // range 类型：区间配置
+  ranges?: GroupByRange[];
+  // date 类型：日期分组模式
+  dateMode?: 'year' | 'month' | 'year-month';
+  // 映射到目标字段（用于拖拽更新）
+  targetField?: string;
+}
+
+// 标准目标分组字段配置
+export const GOAL_GROUP_BY_FIELDS: GroupByField[] = [
+  {
+    field: 'A-level',
+    label: '层级',
+    type: 'select',
+    draggable: true,
+    targetField: 'level',
+    options: [
+      { value: '1', label: '人生', color: '#8B5CF6' },
+      { value: '2', label: '阶段', color: '#3B82F6' },
+      { value: '3', label: '年度', color: '#6366F1' },
+      { value: '4', label: '短期', color: '#22C55E' }
+    ]
+  },
+  {
+    field: 'A-status',
+    label: '状态',
+    type: 'select',
+    draggable: true,
+    targetField: 'status',
+    options: [
+      { value: 'active', label: '进行中', color: '#3B82F6' },
+      { value: 'completed', label: '已完成', color: '#22C55E' },
+      { value: 'abandoned', label: '已放弃', color: '#9CA3AF' }
+    ]
+  },
+  {
+    field: 'A-progress',
+    label: '进度',
+    type: 'range',
+    draggable: true,
+    targetField: 'progress',
+    ranges: [
+      { min: 0, max: 25, label: '0-25%' },
+      { min: 25, max: 50, label: '25-50%' },
+      { min: 50, max: 75, label: '50-75%' },
+      { min: 75, max: 101, label: '75-100%' }
+    ]
+  },
+  {
+    field: 'A-weight',
+    label: '权重',
+    type: 'range',
+    draggable: true,
+    targetField: 'weight',
+    ranges: [
+      { min: 1, max: 4, label: '低 (1-3)' },
+      { min: 4, max: 7, label: '中 (4-6)' },
+      { min: 7, max: 11, label: '高 (7-10)' }
+    ]
+  },
+  {
+    field: 'A-due-year',
+    label: '截止年份',
+    type: 'date',
+    draggable: false,
+    dateMode: 'year'
+  },
+  {
+    field: 'A-start-year',
+    label: '开始年份',
+    type: 'date',
+    draggable: false,
+    dateMode: 'year'
+  },
+  {
+    field: 'A-created-year-month',
+    label: '创建月份',
+    type: 'date',
+    draggable: false,
+    dateMode: 'year-month'
+  },
+  {
+    field: 'A-due-year-month',
+    label: '截止月份',
+    type: 'date',
+    draggable: false,
+    dateMode: 'year-month'
+  },
+  {
+    field: 'A-parent',
+    label: '父目标',
+    type: 'select',
+    draggable: false,
+    options: []  // 动态生成
+  }
+];
 
 // 设置接口
 export interface PluginSettings {

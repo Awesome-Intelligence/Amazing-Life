@@ -94,7 +94,7 @@ export class EventManager {
     // 看板/画廊分组选择
     content.querySelector('#al-board-group-by')?.addEventListener('change', (e) => {
       const groupByValue = (e.target as HTMLSelectElement).value;
-      const groupBy = groupByValue === '' ? null : groupByValue as 'level' | 'goalStatus' | 'parent';
+      const groupBy = groupByValue === '' ? null : groupByValue;
       view.updateActiveTabGroupBy(groupBy);
       view.render();
     });

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Dashboard View - Clean Layout Version with View Switching
  *
  * 主视图类。已将渲染/筛选/弹窗/事件/样式等逻辑拆分至：
@@ -54,6 +54,7 @@ export class DashboardView extends ItemView {
   public draggingGoalEl: HTMLElement | null = null;
   public dragGhost: HTMLElement | null = null;
   public dropTargetColumn: string | null = null;
+  public dropTargetColumnType: string | null = null;
   // 导航历史
   private viewHistory: Array<{ view: ViewType; goalId?: string | null; taskId?: string | null }> = [];
   // 临时筛选状态（用于渲染和事件处理）
@@ -425,7 +426,7 @@ export class DashboardView extends ItemView {
   }
 
   // 更新当前标签的看板分组方式
-  public async updateActiveTabGroupBy(groupBy: 'level' | 'goalStatus' | 'parent' | null): Promise<void> {
+  public async updateActiveTabGroupBy(groupBy: string | null): Promise<void> {
     const settings = this.plugin.getSettings();
     const tabs = this.getViewTabs();
     const activeTab = this.getActiveTab();
@@ -433,7 +434,7 @@ export class DashboardView extends ItemView {
     if (activeTab) {
       const tabIndex = tabs.findIndex(t => t.id === activeTab.id);
       if (tabIndex !== -1) {
-        tabs[tabIndex].groupBy = groupBy || undefined;
+        tabs[tabIndex].groupBy = (groupBy as any) || undefined;
         settings.viewTabs = tabs;
         await this.plugin.saveSettings();
       }
@@ -441,7 +442,7 @@ export class DashboardView extends ItemView {
   }
 
   // 获取当前标签的筛选条件
-  public getCurrentFilters(): { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | 'parent' | null } {
+  public getCurrentFilters(): { conditions: FilterCondition[]; logic: FilterLogic; groupBy: string | null } {
     const activeTab = this.getActiveTab();
     if (activeTab) {
       return {

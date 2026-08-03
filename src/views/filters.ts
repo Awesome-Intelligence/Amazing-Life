@@ -6,7 +6,7 @@
  */
 
 import type { DashboardView } from './DashboardView';
-import { FilterCondition, FilterLogic, FilterOperator, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS } from '../types';
+import { FilterCondition, FilterLogic, FilterOperator, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, GOAL_GROUP_BY_FIELDS } from '../types';
 
 export class FilterHelper {
   constructor(private view: DashboardView) {}
@@ -134,17 +134,13 @@ export class FilterHelper {
   }
 
   // 渲染筛选栏 - 新设计
-  renderFilterBar(currentFilters: { conditions: FilterCondition[]; logic: FilterLogic; groupBy: 'level' | 'goalStatus' | 'parent' | null }): string {
+  renderFilterBar(currentFilters: { conditions: FilterCondition[]; logic: FilterLogic; groupBy: string | null }): string {
     const hasConditions = this.view.tempFilterConditions.length > 0;
     const isModified = this.view.tempFilterModified;
     const isExpanded = this.view.tempShowFilterBuilder;
 
-    const groupByOptions = [
-      { value: '', label: '不分组' },
-      { value: 'level', label: '按层级' },
-      { value: 'goalStatus', label: '按状态' },
-      { value: 'parent', label: '按父目标' }
-    ];
+    // 获取分组选项（包括标准字段和自定义字段）
+    const groupByOptions = this.getGroupByOptions();
 
     const showGroupBy = ['board', 'gallery'].includes(this.view.currentView);
 
@@ -381,5 +377,30 @@ export class FilterHelper {
       return c;
     });
     this.view.tempFilterModified = true;
+  }
+
+  // 获取所有可用的分组选项（包括标准字段和自定义字段）
+  getGroupByOptions(): { value: string; label: string }[] {
+    const options: { value: string; label: string }[] = [
+      { value: '', label: '不分组' }
+    ];
+
+    // 添加标准分组字段
+    for (const field of GOAL_GROUP_BY_FIELDS) {
+      options.push({ value: field.field, label: `按${field.label}` });
+    }
+
+    // 添加自定义字段中的可分组字段
+    const customFields = this.view.plugin.getSettings().customGoalFields || [];
+    for (const cf of customFields) {
+      // 跳过已在标准字段中定义的
+      if (GOAL_GROUP_BY_FIELDS.some(f => f.field === cf.key)) continue;
+
+      if (cf.type === 'select' || cf.type === 'number' || cf.type === 'date') {
+        options.push({ value: cf.key, label: `按${cf.label}` });
+      }
+    }
+
+    return options;
   }
 }
