@@ -104,10 +104,9 @@ export class DetailRenderer {
               </div>
             </div>
             <div class="al-progress-management-block">
-              <div class="al-progress-management-header" id="al-progress-management-toggle">
+              <div class="al-progress-management-header">
                 <span class="al-progress-management-icon">📊</span>
                 <span class="al-progress-management-title">进度管理</span>
-                <span class="al-progress-management-toggle-icon" id="al-progress-toggle-icon">▼</span>
               </div>
               <div class="al-progress-management-content" id="al-progress-management-content">
                 <div class="al-progress-management-fields">
@@ -135,11 +134,11 @@ export class DetailRenderer {
                 </div>
                 <div class="al-subgoals-panel" id="al-subgoals-panel">
                   <div class="al-subgoals-panel-header" id="al-subgoals-toggle">
-                    <span class="al-subgoals-toggle-icon" id="al-subgoals-toggle-icon">▶</span>
+                    <svg class="al-subgoals-toggle-icon expanded" id="al-subgoals-toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                     <span class="al-subgoals-panel-title">子目标</span>
                     <span class="al-subgoals-count">${subGoals.length}</span>
                   </div>
-                  <div class="al-subgoals-panel-content" id="al-subgoals-content" style="display:none;">
+                  <div class="al-subgoals-panel-content" id="al-subgoals-content">
                     ${subGoals.length > 0 ? `
                       <div class="al-subgoals-list">
                         ${subGoals.map(sub => `
@@ -159,12 +158,12 @@ export class DetailRenderer {
                 </div>
                 <div class="al-tasks-panel" id="al-tasks-panel">
                   <div class="al-tasks-panel-header" id="al-tasks-toggle">
-                    <span class="al-tasks-toggle-icon" id="al-tasks-toggle-icon">▶</span>
+                    <svg class="al-tasks-toggle-icon expanded" id="al-tasks-toggle-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"></polyline></svg>
                     <span class="al-tasks-panel-title">关联任务</span>
                     <span class="al-tasks-count">${goalTasks.length}</span>
                     <span class="al-tasks-summary">${pendingTasks.length}待办 ${inProgressTasks.length}进行中 ${completedTasks.length}已完成</span>
                   </div>
-                  <div class="al-tasks-panel-content" id="al-tasks-content" style="display:none;">
+                  <div class="al-tasks-panel-content" id="al-tasks-content">
                     ${goalTasks.length === 0 ? `<div class="al-tasks-empty">暂无任务</div>` : `<div class="al-tasks-list">${goalTasks.map(task => `
                       <div class="al-task-item" data-task-id="${task['A-id']}">
                         <input type="checkbox" class="task-list-item-checkbox" ${task['A-status'] === 'completed' ? 'checked' : ''} data-task-id="${task['A-id']}">

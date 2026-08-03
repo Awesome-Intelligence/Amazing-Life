@@ -226,22 +226,7 @@ export class EventManager {
       view.modalHelper.showParentSelectorModal();
     });
 
-    // 进度管理块折叠/展开
-    content.querySelector('#al-progress-management-toggle')?.addEventListener('click', () => {
-      const innerContent = document.querySelector('#al-progress-management-content') as HTMLElement;
-      const toggleIcon = document.querySelector('#al-progress-toggle-icon') as HTMLElement;
-      if (innerContent) {
-        if (innerContent.style.display === 'none') {
-          innerContent.style.display = 'block';
-          toggleIcon.classList.remove('collapsed');
-          toggleIcon.textContent = '▼';
-        } else {
-          innerContent.style.display = 'none';
-          toggleIcon.classList.add('collapsed');
-          toggleIcon.textContent = '▶';
-        }
-      }
-    });
+
 
     // 子目标折叠面板折叠/展开
     content.querySelector('#al-subgoals-toggle')?.addEventListener('click', () => {
@@ -251,11 +236,9 @@ export class EventManager {
         if (innerContent.style.display === 'none') {
           innerContent.style.display = 'block';
           toggleIcon.classList.add('expanded');
-          toggleIcon.textContent = '▼';
         } else {
           innerContent.style.display = 'none';
           toggleIcon.classList.remove('expanded');
-          toggleIcon.textContent = '▶';
         }
       }
     });
@@ -283,11 +266,9 @@ export class EventManager {
         if (innerContent.style.display === 'none') {
           innerContent.style.display = 'block';
           toggleIcon.classList.add('expanded');
-          toggleIcon.textContent = '▼';
         } else {
           innerContent.style.display = 'none';
           toggleIcon.classList.remove('expanded');
-          toggleIcon.textContent = '▶';
         }
       }
     });
