@@ -550,9 +550,6 @@ export class DashboardView extends ItemView {
     const allTasks = this.plugin.getTaskManager().getAllTasks();
     const todayTasks = this.plugin.getTaskManager().getTodayTasks();
     const overdueTasks = this.plugin.getTaskManager().getOverdueTasks();
-    const completedTasks = this.plugin.getTaskManager().getCompletedTasks();
-    const weekComplete = this.calculateWeekComplete(completedTasks);
-    const activeTasks = allTasks.filter(t => t['A-status'] !== 'completed' && t['A-status'] !== 'cancelled').length;
 
     // 获取当前筛选和分组设置
     const currentFilters = this.getCurrentFilters();
@@ -592,7 +589,7 @@ export class DashboardView extends ItemView {
         ${['list', 'board', 'gallery'].includes(this.currentView) ? this.filterHelper.renderFilterBar(currentFilters) : ''}
 
         <div class="al-body">
-          ${this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, weekComplete, activeTasks)}
+          ${this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks)}
         </div>
       </div>
     `;
@@ -637,24 +634,18 @@ export class DashboardView extends ItemView {
     });
   }
 
-  private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], weekComplete: number, activeTasks: number): string {
+  private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[]): string {
     // 对目标进行筛选
     const filteredGoals = this.filterHelper.applyFilterConditions(allGoals);
 
     switch (this.currentView) {
-      case 'goal-detail': return this.selectedGoalId ? this.detailRenderer.renderGoalDetailView(this.selectedGoalId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
-      case 'task-detail': return this.selectedTaskId ? this.detailRenderer.renderTaskDetailView(this.selectedTaskId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
+      case 'goal-detail': return this.selectedGoalId ? this.detailRenderer.renderGoalDetailView(this.selectedGoalId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks);
+      case 'task-detail': return this.selectedTaskId ? this.detailRenderer.renderTaskDetailView(this.selectedTaskId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks);
       case 'list': return this.dashboardRenderer.renderListView(filteredGoals, allTasks);
       case 'board': return this.boardRenderer.renderBoardView(filteredGoals, allTasks);
       case 'gallery': return this.galleryRenderer.renderGalleryView(filteredGoals, allTasks);
-      default: return this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, weekComplete, activeTasks);
+      default: return this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks);
     }
-  }
-
-  private calculateWeekComplete(completedTasks: Task[]): number {
-    const now = new Date();
-    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    return completedTasks.filter(t => { if (!t['A-completed']) return false; return new Date(t['A-completed']) >= weekAgo; }).length;
   }
 
   // 日历视图调用：打开日记

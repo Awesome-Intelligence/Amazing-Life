@@ -15,19 +15,13 @@ import { Goal, Task, TaskField } from '../../types';
 export class DashboardRenderer {
   constructor(private view: DashboardView) {}
 
-  renderDashboardView(todayTasks: Task[], overdueTasks: Task[], weekComplete: number, activeTasks: number): string {
+  renderDashboardView(todayTasks: Task[], overdueTasks: Task[]): string {
     const calendarHtml = this.view.calendarRenderer.renderCalendar();
     return `
       <div class="al-main-full">
         <div class="al-panel al-panel-calendar">
           <div class="al-panel-header"><span>📅</span><span>日历</span></div>
           <div class="al-panel-body al-calendar-body">${calendarHtml}</div>
-        </div>
-        <div class="al-stats">
-          <div class="al-stat"><span class="al-stat-num">${todayTasks.length}</span><span class="al-stat-label">今日待办</span></div>
-          <div class="al-stat"><span class="al-stat-num">${weekComplete}</span><span class="al-stat-label">本周完成</span></div>
-          <div class="al-stat ${overdueTasks.length > 0 ? 'al-stat-warning' : ''}"><span class="al-stat-num">${overdueTasks.length}</span><span class="al-stat-label">逾期任务</span></div>
-          <div class="al-stat"><span class="al-stat-num">${activeTasks}</span><span class="al-stat-label">进行中</span></div>
         </div>
         <div class="al-panel">
           <div class="al-panel-header"><span>📋</span><span>今日任务</span><span class="al-panel-count">${todayTasks.length}</span></div>
