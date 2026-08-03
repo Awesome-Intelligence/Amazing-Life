@@ -5,7 +5,7 @@
 
 import { TFile } from 'obsidian';
 import { FileStorage } from '../../storage/FileStorage';
-import { Goal, GoalTree, GoalLevel, GoalStatus, Task, PluginSettings } from '../../types';
+import { Goal, GoalTree, GoalLevel, GoalStatus, Task, PluginSettings, CustomFieldConfig } from '../../types';
 
 export interface CreateGoalDTO {
   title: string;
@@ -32,6 +32,7 @@ export interface UpdateGoalDTO {
 export class GoalManager {
   private goals: Map<string, Goal> = new Map();
   private goalsByLevel: Map<GoalLevel, Goal[]> = new Map();
+  private onSettingsChange: ((settings: PluginSettings) => void) | null = null;
   
   constructor(
     private storage: FileStorage,
@@ -40,6 +41,56 @@ export class GoalManager {
   
   updateSettings(settings: PluginSettings): void {
     this.settings = settings;
+  }
+  
+  setOnSettingsChange(callback: (settings: PluginSettings) => void): void {
+    this.onSettingsChange = callback;
+  }
+  
+  /**
+   * 清理未使用的自定义字段定义
+   * 只保留至少有一个目标在使用中的字段
+   */
+  async cleanupUnusedCustomFields(): Promise<void> {
+    const usedFieldKeys = this.getUsedCustomFieldKeys();
+    const currentFields = this.settings.customGoalFields || [];
+    const filteredFields = currentFields.filter((field: CustomFieldConfig) => 
+      usedFieldKeys.has(field.key)
+    );
+    
+    // 只有当有变化时才保存
+    if (filteredFields.length !== currentFields.length) {
+      console.log(`[GoalManager] 清理未使用的自定义字段: ${currentFields.length} -> ${filteredFields.length}`);
+      this.settings.customGoalFields = filteredFields;
+      if (this.onSettingsChange) {
+        this.onSettingsChange(this.settings);
+      }
+    }
+  }
+  
+  /**
+   * 获取所有目标中正在使用的自定义字段键
+   */
+  private getUsedCustomFieldKeys(): Set<string> {
+    const usedKeys = new Set<string>();
+    const systemFields = new Set([
+      'A-id', 'A-type', 'A-title', 'A-level', 'A-parent', 'A-status',
+      'A-progress', 'A-weight', 'A-start', 'A-due', 'A-description',
+      'A-cover', 'A-created', 'A-updated', 'A-tags'
+    ]);
+    
+    for (const goal of this.goals.values()) {
+      for (const key of Object.keys(goal)) {
+        // 跳过系统字段和非 A- 开头的内部字段
+        if (systemFields.has(key) || key.startsWith('A-')) continue;
+        // 只记录有实际值的字段
+        if (goal[key] !== undefined && goal[key] !== null && goal[key] !== '') {
+          usedKeys.add(key);
+        }
+      }
+    }
+    
+    return usedKeys;
   }
   
   /**
@@ -69,6 +120,9 @@ export class GoalManager {
       levelGoals.push(goal);
       this.goalsByLevel.set(goal['A-level'], levelGoals);
     }
+    
+    // 自动清理未使用的自定义字段
+    await this.cleanupUnusedCustomFields();
   }
   
   /**

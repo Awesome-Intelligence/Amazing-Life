@@ -30,6 +30,12 @@ export default class AmazingLife extends Plugin {
     // Initialize components
     this.initializeComponents();
     
+    // 设置 GoalManager 的 settings 保存回调（用于自动清理未使用的自定义字段）
+    this.goalManager.setOnSettingsChange(async (settings) => {
+      this.lifeSettings = settings;
+      await this.saveData(this.lifeSettings);
+    });
+    
     // Register dashboard view
     this.registerView(DASHBOARD_VIEW_TYPE, (leaf) => new DashboardView(leaf, this));
     
