@@ -254,14 +254,21 @@ LIMIT 50
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
           </div>
         </div>
-        ${v?`<div class="al-detail-cover"><img src="${v}" alt="\u5C01\u9762\u56FE"></div>`:""}
         <div class="al-detail-content">
           <div class="al-detail-main">
-            ${v?"":`<div class="al-detail-add-cover">
-              <span>\u{1F5BC}\uFE0F</span>
-              <span class="al-field-label">\u6DFB\u52A0\u5C01\u9762</span>
-              <span>\u70B9\u51FB\u6DFB\u52A0\u5C01\u9762\u56FE\u7247URL</span>
-            </div>`}
+            <div class="al-detail-description-block" data-field="description" data-value="${e["A-description"]||""}">
+              ${v?`<div class="al-detail-cover"><img src="${v}" alt="\u5C01\u9762\u56FE"></div>`:""}
+              ${v?"":`<div class="al-detail-add-cover">
+                <span>\u{1F5BC}\uFE0F</span>
+                <span class="al-field-label">\u6DFB\u52A0\u5C01\u9762</span>
+                <span>\u70B9\u51FB\u6DFB\u52A0\u5C01\u9762\u56FE\u7247URL</span>
+              </div>`}
+              <div class="al-detail-description-header">
+                <span class="al-detail-description-icon">\u{1F4DD}</span>
+                <span class="al-detail-description-title">\u76EE\u6807\u63CF\u8FF0</span>
+              </div>
+              <div class="al-detail-description-content al-field-editable" data-field-type="textarea">${e["A-description"]||"\u6DFB\u52A0\u63CF\u8FF0..."}</div>
+            </div>
             <div class="al-detail-fields">
               <div class="al-field-row" data-field="level" data-value="${e["A-level"]}">
                 <span class="al-field-icon">\u{1F3AF}</span>
@@ -273,13 +280,6 @@ LIMIT 50
                 <span class="al-field-label">\u4E0A\u7EA7\u76EE\u6807</span>
                 <span class="al-field-value al-parent-value ${p?"has-parent":""}" data-goal-id="${p?p["A-id"]:""}">${p?p["A-title"]:"\u70B9\u51FB\u9009\u62E9"}</span>
               </div>
-            </div>
-            <div class="al-detail-description-block" data-field="description" data-value="${e["A-description"]||""}">
-              <div class="al-detail-description-header">
-                <span class="al-detail-description-icon">\u{1F4DD}</span>
-                <span class="al-detail-description-title">\u76EE\u6807\u63CF\u8FF0</span>
-              </div>
-              <div class="al-detail-description-content al-field-editable" data-field-type="textarea">${e["A-description"]||"\u6DFB\u52A0\u63CF\u8FF0..."}</div>
             </div>
             <div class="al-detail-custom-fields-block">
               <div class="al-detail-custom-fields-header" id="al-custom-fields-toggle">
@@ -516,7 +516,7 @@ LIMIT 50
   .al-board-column-footer{padding:8px;border-top:1px dashed var(--border-color)}.al-add-goal-btn{display:flex;align-items:center;justify-content:center;gap:4px;padding:8px;border:1px dashed var(--border-color);border-radius:6px;color:var(--text-muted);cursor:pointer;font-size:12px;transition:all .15s}.al-add-goal-btn:hover{border-color:var(--interactive-accent);color:var(--interactive-accent);background:var(--background-modifier-hover)}
   .al-add-goal-link{display:block;padding:12px 16px;color:var(--text-muted);cursor:pointer;text-align:center;border-top:1px solid var(--border-color);font-size:13px;transition:all .15s}.al-add-goal-link:hover{color:var(--text-normal);background:var(--background-secondary)}
   .al-detail-fields{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-field-row{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--border-color);font-size:14px}.al-field-row:last-child{border-bottom:none}.al-field-row:hover{background:var(--background-modifier-hover)}.al-field-icon{font-size:16px;flex-shrink:0}.al-field-label{color:var(--text-secondary);min-width:80px;flex-shrink:0}.al-field-value{color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.al-field-editable{cursor:pointer;color:var(--text-muted)}.al-field-editable:hover{color:var(--text-primary)}.al-field-link{color:var(--interactive-accent);cursor:pointer;text-decoration:underline}.al-field-progress{display:flex;align-items:center;gap:8px;flex:1}.al-progress-bar-small{flex:1;height:6px;background:var(--background-modifier-border);border-radius:3px;overflow:hidden;max-width:150px}.al-progress-fill-small{height:100%;background:var(--interactive-accent);border-radius:3px}.al-field-progress-value{font-size:13px;font-weight:600;color:var(--text-primary);min-width:40px}
-  .al-detail-cover{width:100%;max-height:300px;overflow:hidden;border-radius:10px;margin-bottom:20px;cursor:pointer}.al-detail-cover img{width:100%;height:100%;object-fit:cover}.al-detail-add-cover{display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px dashed var(--border-color);border-radius:10px;margin-bottom:20px;cursor:pointer;color:var(--text-muted);font-size:14px;transition:all .15s}.al-detail-add-cover:hover{opacity:1;border-color:var(--interactive-accent);background:var(--background-secondary)}
+  .al-detail-cover{width:100%;max-height:300px;overflow:hidden;cursor:pointer}.al-detail-cover img{width:100%;height:100%;object-fit:cover;display:block}.al-detail-add-cover{display:flex;align-items:center;gap:12px;padding:12px 16px;border:2px dashed var(--border-color);cursor:pointer;color:var(--text-muted);font-size:14px;transition:all .15s}.al-detail-add-cover:hover{opacity:1;border-color:var(--interactive-accent);background:var(--background-secondary)}
   .al-detail-add-cover .al-field-label{color:var(--text-secondary);min-width:80px}
   .al-field-edit-input,.al-field-edit-select,.al-field-edit-textarea{flex:1;padding:6px 10px;border:1px solid var(--interactive-accent);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px;outline:none;box-sizing:border-box}.al-field-edit-select{max-width:150px}.al-field-edit-textarea{min-height:60px;resize:vertical}
   .al-detail-description-block{background:var(--background-secondary);border-radius:10px;border:1px solid var(--border-color);margin-bottom:20px;overflow:hidden}.al-detail-description-header{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--border-color)}.al-detail-description-icon{font-size:16px}.al-detail-description-title{font-size:13px;font-weight:600;color:var(--text-secondary)}.al-detail-description-content{padding:16px;color:var(--text-muted);font-size:14px;line-height:1.6;cursor:pointer;min-height:60px}.al-detail-description-content:hover{color:var(--text-primary)}.al-detail-description-block .al-field-edit-textarea{width:100%;max-width:none}

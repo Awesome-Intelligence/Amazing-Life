@@ -55,14 +55,21 @@ export class DetailRenderer {
             <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"></circle><circle cx="12" cy="5" r="1"></circle><circle cx="12" cy="19" r="1"></circle></svg>
           </div>
         </div>
-        ${coverImageUrl ? `<div class="al-detail-cover"><img src="${coverImageUrl}" alt="封面图"></div>` : ''}
         <div class="al-detail-content">
           <div class="al-detail-main">
-            ${!coverImageUrl ? `<div class="al-detail-add-cover">
-              <span>🖼️</span>
-              <span class="al-field-label">添加封面</span>
-              <span>点击添加封面图片URL</span>
-            </div>` : ''}
+            <div class="al-detail-description-block" data-field="description" data-value="${goal['A-description'] || ''}">
+              ${coverImageUrl ? `<div class="al-detail-cover"><img src="${coverImageUrl}" alt="封面图"></div>` : ''}
+              ${!coverImageUrl ? `<div class="al-detail-add-cover">
+                <span>🖼️</span>
+                <span class="al-field-label">添加封面</span>
+                <span>点击添加封面图片URL</span>
+              </div>` : ''}
+              <div class="al-detail-description-header">
+                <span class="al-detail-description-icon">📝</span>
+                <span class="al-detail-description-title">目标描述</span>
+              </div>
+              <div class="al-detail-description-content al-field-editable" data-field-type="textarea">${goal['A-description'] || '添加描述...'}</div>
+            </div>
             <div class="al-detail-fields">
               <div class="al-field-row" data-field="level" data-value="${goal['A-level']}">
                 <span class="al-field-icon">🎯</span>
@@ -74,13 +81,6 @@ export class DetailRenderer {
                 <span class="al-field-label">上级目标</span>
                 <span class="al-field-value al-parent-value ${parentGoal ? 'has-parent' : ''}" data-goal-id="${parentGoal ? parentGoal['A-id'] : ''}">${parentGoal ? parentGoal['A-title'] : '点击选择'}</span>
               </div>
-            </div>
-            <div class="al-detail-description-block" data-field="description" data-value="${goal['A-description'] || ''}">
-              <div class="al-detail-description-header">
-                <span class="al-detail-description-icon">📝</span>
-                <span class="al-detail-description-title">目标描述</span>
-              </div>
-              <div class="al-detail-description-content al-field-editable" data-field-type="textarea">${goal['A-description'] || '添加描述...'}</div>
             </div>
             <div class="al-detail-custom-fields-block">
               <div class="al-detail-custom-fields-header" id="al-custom-fields-toggle">
