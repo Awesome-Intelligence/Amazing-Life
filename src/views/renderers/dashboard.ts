@@ -90,9 +90,15 @@ export class DashboardRenderer {
     return `<div class="al-table-view"><div class="al-markdown-table-wrapper"><div class="al-markdown-placeholder" data-markdown="${encodeURIComponent(tableMarkdown)}" data-goal-ids="${goalIds}"></div></div><div class="al-add-goal-link" id="al-list-add-goal">+ 添加目标</div></div>`;
   }
 
-  // 渲染任务列表（仅用于仪表盘今日任务/逾期任务面板）
+  // 渲染任务列表（仅用于仪表盘今日任务/逾期任务面板）- 使用目标详情页的块样式
   renderTasks(tasks: Task[]): string {
-    const fields = this.view.getTaskFields();
-    return tasks.slice(0, 10).map(task => `<div class="al-task" data-task-id="${task['A-id']}"><div class="al-task-check ${task['A-status']==='completed'?'checked':''}" data-task-id="${task['A-id']}">${task['A-status']==='completed'?'✓':''}</div><div class="al-task-content">${this.view.detailRenderer.renderTaskFields(task, fields)}</div></div>`).join('');
+    const priorityColors = ['var(--text-red)', 'var(--text-orange)', 'var(--text-yellow)', 'var(--text-green)', 'var(--text-muted)'];
+    return tasks.slice(0, 10).map(task => `
+      <div class="al-task-item al-dashboard-task-item" data-task-id="${task['A-id']}">
+        <input type="checkbox" class="task-list-item-checkbox" ${task['A-status'] === 'completed' ? 'checked' : ''} data-task-id="${task['A-id']}">
+        <div class="al-task-title ${task['A-status'] === 'completed' ? 'done' : ''}">${task['A-title']}</div>
+        <div class="al-task-priority" style="color: ${priorityColors[task['A-priority'] - 1]}">${['🔴', '🟠', '🟡', '🟢', '⚪'][task['A-priority'] - 1]}</div>
+      </div>
+    `).join('');
   }
 }
