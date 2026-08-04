@@ -149,14 +149,16 @@ export class FilterHelper {
 
     // 根据是否有条件决定主按钮文案
     const mainButtonText = hasConditions ? '添加' : '添加筛选';
-    const toggleText = isExpanded ? '▲' : '▼';
     const conditionsCountText = hasConditions ? `${this.view.tempFilterConditions.length}个条件` : '';
 
     return `
       <div class="al-filter-bar">
         ${hasConditions ? `
           <button id="al-toggle-filter-bar" class="al-filter-toggle ${isExpanded ? 'active' : ''}">
-            ${toggleText} ${conditionsCountText}
+            <svg class="al-filter-toggle-icon ${isExpanded ? 'expanded' : ''}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"></polyline>
+            </svg>
+            <span class="al-filter-toggle-text">${conditionsCountText}</span>
           </button>
           <span class="al-filter-summary">${conditionsSummary}</span>
           <button id="al-add-filter-condition-inline" class="al-filter-add-inline" title="添加条件">+</button>
