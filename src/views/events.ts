@@ -11,6 +11,7 @@
 
 import { Notice, Menu, setIcon } from 'obsidian';
 import type { DashboardView } from './DashboardView';
+import type { DashboardTaskMode } from './view-types';
 import { DeleteConfirmModal, CoverImagePickerModal } from './modals';
 import { FilterLogic, FilterOperator, ViewType, GOAL_FILTER_FIELDS, FILTER_OPERATOR_LABELS } from '../types';
 
@@ -23,6 +24,12 @@ export class EventManager {
 
     // Calendar events
     view.calendarRenderer.bindCalendarEvents(content);
+
+    // 仪表盘任务面板切换
+    content.querySelector('#al-dashboard-task-mode')?.addEventListener('change', (e) => {
+      view.dashboardTaskMode = (e.target as HTMLSelectElement).value as DashboardTaskMode;
+      view.render();
+    });
 
     // 仪表盘标签点击（固定的）
     content.querySelectorAll('.al-view-tab[data-view]').forEach(tab => {

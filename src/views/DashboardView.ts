@@ -22,7 +22,7 @@ import { ItemView, Notice, setIcon, TFile, Menu, MarkdownRenderer } from 'obsidi
 import { Goal, Task, TaskField, GoalField, FilterCondition, FilterLogic, ViewTab, ViewTabType, getDefaultViewTabs, CustomFieldConfig } from '../types';
 import AmazingLife from '../main';
 import { DASHBOARD_VIEW_TYPE } from './view-types';
-import type { ViewType, CalendarViewMode } from './view-types';
+import type { ViewType, CalendarViewMode, DashboardTaskMode } from './view-types';
 import { DeleteConfirmModal, CoverImagePickerModal } from './modals';
 import { FilterHelper } from './filters';
 import { DashboardRenderer } from './renderers/dashboard';
@@ -45,6 +45,7 @@ export class DashboardView extends ItemView {
   public selectedTaskId: string | null = null;
   public calendarMode: CalendarViewMode = 'day';
   public calendarDate: Date = new Date();
+  public dashboardTaskMode: DashboardTaskMode = 'overdue';
   public selectedWeekStart: string | null = null;
   public selectedMonth: string | null = null;
   public selectedYear: string | null = null;
@@ -550,6 +551,7 @@ export class DashboardView extends ItemView {
     const allTasks = this.plugin.getTaskManager().getAllTasks();
     const todayTasks = this.plugin.getTaskManager().getTodayTasks();
     const overdueTasks = this.plugin.getTaskManager().getOverdueTasks();
+    const importantTasks = this.plugin.getTaskManager().getImportantTasks();
 
     // 获取当前筛选和分组设置
     const currentFilters = this.getCurrentFilters();
@@ -589,7 +591,7 @@ export class DashboardView extends ItemView {
         ${['list', 'board', 'gallery'].includes(this.currentView) ? this.filterHelper.renderFilterBar(currentFilters) : ''}
 
         <div class="al-body">
-          ${this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks)}
+          ${this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, importantTasks)}
         </div>
       </div>
     `;
@@ -634,17 +636,17 @@ export class DashboardView extends ItemView {
     });
   }
 
-  private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[]): string {
+  private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], importantTasks: Task[]): string {
     // 对目标进行筛选
     const filteredGoals = this.filterHelper.applyFilterConditions(allGoals);
 
     switch (this.currentView) {
-      case 'goal-detail': return this.selectedGoalId ? this.detailRenderer.renderGoalDetailView(this.selectedGoalId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks);
-      case 'task-detail': return this.selectedTaskId ? this.detailRenderer.renderTaskDetailView(this.selectedTaskId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks);
+      case 'goal-detail': return this.selectedGoalId ? this.detailRenderer.renderGoalDetailView(this.selectedGoalId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, this.dashboardTaskMode);
+      case 'task-detail': return this.selectedTaskId ? this.detailRenderer.renderTaskDetailView(this.selectedTaskId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, this.dashboardTaskMode);
       case 'list': return this.dashboardRenderer.renderListView(filteredGoals, allTasks);
       case 'board': return this.boardRenderer.renderBoardView(filteredGoals, allTasks);
       case 'gallery': return this.galleryRenderer.renderGalleryView(filteredGoals, allTasks);
-      default: return this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks);
+      default: return this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, this.dashboardTaskMode);
     }
   }
 

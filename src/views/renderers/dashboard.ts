@@ -11,12 +11,25 @@
 
 import type { DashboardView } from '../DashboardView';
 import { Goal, Task, TaskField, STATUS_NAMES } from '../../types';
+import type { DashboardTaskMode } from '../view-types';
 
 export class DashboardRenderer {
   constructor(private view: DashboardView) {}
 
-  renderDashboardView(todayTasks: Task[], overdueTasks: Task[]): string {
+  renderDashboardView(todayTasks: Task[], overdueTasks: Task[], importantTasks: Task[], taskMode: DashboardTaskMode = 'overdue'): string {
     const calendarHtml = this.view.calendarRenderer.renderCalendar();
+    const modeConfig: Record<DashboardTaskMode, { icon: string; label: string; count: number; countClass: string; emptyText: string }> = {
+      important: { icon: '⭐', label: '重点任务', count: importantTasks.length, countClass: '', emptyText: '暂无重点任务' },
+      today: { icon: '📋', label: '今日任务', count: todayTasks.length, countClass: '', emptyText: '暂无任务' },
+      overdue: { icon: '⚠️', label: '逾期任务', count: overdueTasks.length, countClass: 'al-count-overdue', emptyText: '暂无逾期任务' }
+    };
+    const currentMode = modeConfig[taskMode];
+    const currentTasks = taskMode === 'important' ? importantTasks : taskMode === 'today' ? todayTasks : overdueTasks;
+    const modeOptions = (['important', 'today', 'overdue'] as DashboardTaskMode[]).map(mode => {
+      const labels: Record<DashboardTaskMode, string> = { important: '重点任务', today: '今日任务', overdue: '逾期任务' };
+      return `<option value="${mode}" ${taskMode === mode ? 'selected' : ''}>${labels[mode]}</option>`;
+    }).join('');
+
     return `
       <div class="al-main-full">
         <div class="al-panel al-panel-calendar">
@@ -27,7 +40,17 @@ export class DashboardRenderer {
           <div class="al-panel-header"><span>📋</span><span>今日任务</span><span class="al-panel-count">${todayTasks.length}</span></div>
           <div class="al-panel-body">${todayTasks.length === 0 ? this.view.detailRenderer.renderEmpty('📋', '暂无任务', '点击右上角按钮添加任务') : this.renderTasks(todayTasks)}</div>
         </div>
-        ${overdueTasks.length > 0 ? `<div class="al-panel al-panel-overdue"><div class="al-panel-header"><span>⚠️</span><span>逾期任务</span><span class="al-panel-count al-count-overdue">${overdueTasks.length}</span></div><div class="al-panel-body">${this.renderTasks(overdueTasks)}</div></div>` : ''}
+        <div class="al-panel ${taskMode === 'overdue' ? 'al-panel-overdue' : ''}">
+          <div class="al-panel-header">
+            <span>${currentMode.icon}</span>
+            <span>${currentMode.label}</span>
+            <span class="al-panel-count ${currentMode.countClass}">${currentMode.count}</span>
+            <select id="al-dashboard-task-mode" class="al-panel-mode-select" aria-label="切换任务面板">
+              ${modeOptions}
+            </select>
+          </div>
+          <div class="al-panel-body">${currentTasks.length === 0 ? this.view.detailRenderer.renderEmpty(currentMode.icon, currentMode.emptyText, '') : this.renderTasks(currentTasks)}</div>
+        </div>
       </div>
     `;
   }

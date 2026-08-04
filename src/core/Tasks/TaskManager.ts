@@ -440,6 +440,17 @@ export class TaskManager {
       task['A-due'] === today
     );
   }
+
+  /**
+   * 获取重点任务（未完成且优先级为最高或高）
+   */
+  getImportantTasks(): Task[] {
+    return this.getAllTasks().filter(task =>
+      task['A-status'] !== 'completed' &&
+      task['A-status'] !== 'cancelled' &&
+      (task['A-priority'] === 1 || task['A-priority'] === 2)
+    );
+  }
   
   /**
    * 获取逾期任务

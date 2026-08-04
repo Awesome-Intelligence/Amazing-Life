@@ -10,3 +10,4 @@ export const DASHBOARD_VIEW_TYPE = 'amazing-life-dashboard';
 export type ViewType = 'dashboard' | 'list' | 'board' | 'gallery' | 'goal-detail' | 'task-detail';
 export type CalendarViewMode = 'day' | 'week' | 'month' | 'year';
 export type BoardGroupBy = 'level' | 'goalStatus' | 'parent';
+export type DashboardTaskMode = 'important' | 'today' | 'overdue';
