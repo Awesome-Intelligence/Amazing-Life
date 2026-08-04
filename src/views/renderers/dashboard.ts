@@ -2,7 +2,7 @@
  * Dashboard View - Dashboard & List Renderer
  *
  * 从 DashboardView 类中抽出的仪表盘与列表视图渲染逻辑：
- * - renderDashboardView：仪表盘首页（日历 + 今日任务 + 逾期任务）
+ * - renderDashboardView：仪表盘首页（日历 + 重点目标 + 可切换任务面板）
  * - renderListView：列表视图（Markdown 表格形式）
  * - renderTasks / renderTaskFields 辅助
  *
@@ -16,7 +16,7 @@ import type { DashboardTaskMode } from '../view-types';
 export class DashboardRenderer {
   constructor(private view: DashboardView) {}
 
-  renderDashboardView(todayTasks: Task[], overdueTasks: Task[], importantTasks: Task[], taskMode: DashboardTaskMode = 'overdue'): string {
+  renderDashboardView(todayTasks: Task[], overdueTasks: Task[], importantTasks: Task[], focusGoals: Goal[], taskMode: DashboardTaskMode = 'overdue'): string {
     const calendarHtml = this.view.calendarRenderer.renderCalendar();
     const modeConfig: Record<DashboardTaskMode, { icon: string; label: string; count: number; countClass: string; emptyText: string }> = {
       important: { icon: '⭐', label: '重点任务', count: importantTasks.length, countClass: '', emptyText: '暂无重点任务' },
@@ -37,8 +37,8 @@ export class DashboardRenderer {
           <div class="al-panel-body al-calendar-body">${calendarHtml}</div>
         </div>
         <div class="al-panel">
-          <div class="al-panel-header"><span>📋</span><span>今日任务</span><span class="al-panel-count">${todayTasks.length}</span></div>
-          <div class="al-panel-body">${todayTasks.length === 0 ? this.view.detailRenderer.renderEmpty('📋', '暂无任务', '点击右上角按钮添加任务') : this.renderTasks(todayTasks)}</div>
+          <div class="al-panel-header"><span>🎯</span><span>重点目标</span><span class="al-panel-count">${focusGoals.length}</span></div>
+          <div class="al-panel-body">${focusGoals.length === 0 ? this.view.detailRenderer.renderEmpty('🎯', '暂无重点目标', '') : this.renderGoals(focusGoals)}</div>
         </div>
         <div class="al-panel ${taskMode === 'overdue' ? 'al-panel-overdue' : ''}">
           <div class="al-panel-header">
@@ -118,5 +118,28 @@ export class DashboardRenderer {
         <div class="al-task-priority" style="color: ${priorityColors[task['A-priority'] - 1]}">${['🔴', '🟠', '🟡', '🟢', '⚪'][task['A-priority'] - 1]}</div>
       </div>
     `).join('');
+  }
+
+  // 渲染重点目标卡片，点击后进入目标详情
+  renderGoals(goals: Goal[]): string {
+    const levelNames: Record<number, string> = { 1: '人生', 2: '阶段', 3: '年度', 4: '短期' };
+    const levelColors: Record<number, string> = { 1: 'var(--text-purple)', 2: 'var(--text-blue)', 3: 'var(--interactive-accent)', 4: 'var(--text-green)' };
+    return `
+      <div class="al-dashboard-goal-grid">
+        ${goals.slice(0, 10).map(goal => `
+          <div class="al-dashboard-goal-card" data-goal-id="${goal['A-id']}">
+            <div class="al-dashboard-goal-card-header">
+              <span class="al-goal-level" data-level="${goal['A-level']}" style="background:${levelColors[goal['A-level']]}">${levelNames[goal['A-level']]}</span>
+              ${goal['A-due'] ? `<span class="al-goal-due">${goal['A-due']}</span>` : ''}
+            </div>
+            <div class="al-dashboard-goal-card-title">${goal['A-title']}</div>
+            <div class="al-dashboard-goal-card-progress">
+              <div class="al-progress-bar"><div class="al-progress-fill" style="width:${goal['A-progress']}%"></div></div>
+              <span>${goal['A-progress']}%</span>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
   }
 }

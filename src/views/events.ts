@@ -112,6 +112,20 @@ export class EventManager {
     // 目标更多操作菜单 - 使用 Obsidian 原生 Menu
     const menuBtn = content.querySelector('#al-goal-menu-btn');
 
+    content.querySelector('#al-goal-star-btn')?.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      if (!view.selectedGoalId) return;
+      const goal = view.getGoal(view.selectedGoalId);
+      if (!goal) return;
+      try {
+        await view.plugin.getGoalManager().updateGoal(view.selectedGoalId, { starred: !goal['A-starred'] });
+        new Notice(goal['A-starred'] ? '已取消重点标记' : '已标记为重点目标');
+        view.loadAndRender();
+      } catch (error) {
+        new Notice('更新重点标记失败: ' + (error as Error).message);
+      }
+    });
+
     menuBtn?.addEventListener('click', (e) => {
       e.stopPropagation();
       const menu = new Menu();
@@ -178,7 +192,7 @@ export class EventManager {
     });
 
     // Goal click events - 记录历史
-    content.querySelectorAll('.al-goal, .al-gallery-goal').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { view.navigateTo('goal-detail', goalId, null); } }); });
+    content.querySelectorAll('.al-goal, .al-gallery-goal, .al-dashboard-goal-card').forEach(el => { el.addEventListener('click', (e) => { const goalId = (e.currentTarget as HTMLElement).getAttribute('data-goal-id'); if (goalId) { view.navigateTo('goal-detail', goalId, null); } }); });
 
     // Task click events (in detail views) - 记录历史
     content.querySelectorAll('.al-detail-task').forEach(el => { el.addEventListener('click', (e) => { if ((e.target as HTMLElement).closest('.task-list-item-checkbox')) { return; } const taskId = (e.currentTarget as HTMLElement).getAttribute('data-task-id'); if (taskId) { view.modalHelper.showTaskDetailModal(taskId); } }); });

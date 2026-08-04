@@ -25,6 +25,7 @@ export interface Goal {
   'A-status': GoalStatus;
   'A-progress': number;
   'A-weight': number;
+  'A-starred': boolean;
   'A-start': string;
   'A-due': string | null;
   'A-description': string | null;

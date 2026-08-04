@@ -24,6 +24,7 @@ export interface UpdateGoalDTO {
   level?: GoalLevel;
   start?: string;
   weight?: number;
+  starred?: boolean;
   cover?: string | null;
   parent?: string | null;
   [key: string]: any;  // 支持自定义字段
@@ -153,6 +154,7 @@ export class GoalManager {
       'A-status': (frontmatter['A-status'] || 'active') as GoalStatus,
       'A-progress': Number(frontmatter['A-progress'] || 0),
       'A-weight': Number(frontmatter['A-weight'] || 1),
+      'A-starred': frontmatter['A-starred'] === true || frontmatter['A-starred'] === 'true',
       'A-start': String(frontmatter['A-start'] || new Date().toISOString().split('T')[0]),
       'A-due': frontmatter['A-due'] ? String(frontmatter['A-due']) : null,
       'A-description': description,
@@ -230,6 +232,7 @@ export class GoalManager {
       'A-status': 'active',
       'A-progress': 0,
       'A-weight': 1,
+      'A-starred': false,
       'A-start': now,
       'A-due': dto.due || null,
       'A-description': dto.description || null,
@@ -265,6 +268,7 @@ export class GoalManager {
       `A-status: ${goal['A-status']}`,
       `A-progress: ${goal['A-progress']}`,
       `A-weight: ${goal['A-weight']}`,
+      `A-starred: ${goal['A-starred']}`,
       `A-start: ${goal['A-start']}`,
       `A-due: ${goal['A-due'] || ''}`,
       `A-cover: ${goal['A-cover'] || ''}`,
@@ -310,11 +314,12 @@ export class GoalManager {
     if (dto.level !== undefined) goal['A-level'] = dto.level;
     if (dto.start !== undefined) goal['A-start'] = dto.start;
     if (dto.weight !== undefined) goal['A-weight'] = dto.weight;
+    if (dto.starred !== undefined) goal['A-starred'] = dto.starred;
     if (dto.cover !== undefined) goal['A-cover'] = dto.cover || null;
     if (dto.parent !== undefined) goal['A-parent'] = dto.parent;
     
     // 处理自定义字段
-    const systemFields = ['title', 'description', 'due', 'status', 'progress', 'level', 'start', 'weight', 'cover', 'parent'];
+    const systemFields = ['title', 'description', 'due', 'status', 'progress', 'level', 'start', 'weight', 'starred', 'cover', 'parent'];
     for (const [key, value] of Object.entries(dto)) {
       if (!systemFields.includes(key)) {
         goal[key] = value;
@@ -354,7 +359,7 @@ export class GoalManager {
     let inOverview = false;
     let frontmatterEndIndex = -1;
     const frontmatterFields: Record<string, boolean> = {};
-    const systemFields = ['A-title', 'A-level', 'A-status', 'A-progress', 'A-due', 'A-start', 'A-weight', 'A-cover', 'A-updated', 'A-description', 'A-id', 'A-created', 'A-parent', 'A-tags'];
+    const systemFields = ['A-title', 'A-level', 'A-status', 'A-progress', 'A-due', 'A-start', 'A-weight', 'A-starred', 'A-cover', 'A-updated', 'A-description', 'A-id', 'A-created', 'A-parent', 'A-tags'];
     
     for (const line of lines) {
       if (line === '---') {
@@ -391,6 +396,9 @@ export class GoalManager {
         } else if (line.startsWith('A-weight:')) {
           updatedLines.push(`A-weight: ${goal['A-weight']}`);
           frontmatterFields['A-weight'] = true;
+        } else if (line.startsWith('A-starred:')) {
+          updatedLines.push(`A-starred: ${goal['A-starred']}`);
+          frontmatterFields['A-starred'] = true;
         } else if (line.startsWith('A-cover:')) {
           updatedLines.push(`A-cover: ${goal['A-cover'] || ''}`);
           frontmatterFields['A-cover'] = true;
@@ -443,6 +451,11 @@ export class GoalManager {
     
     // 处理自定义字段：在 frontmatter 结束后添加未在文件中的自定义字段
     if (frontmatterEndIndex > 0) {
+      if (!frontmatterFields['A-starred']) {
+        updatedLines.splice(frontmatterEndIndex, 0, `A-starred: ${goal['A-starred']}`);
+        frontmatterEndIndex++;
+      }
+
       for (const [key, value] of Object.entries(goal)) {
         // 跳过系统字段
         if (systemFields.includes(key)) continue;

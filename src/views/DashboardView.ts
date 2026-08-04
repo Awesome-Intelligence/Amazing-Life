@@ -552,6 +552,9 @@ export class DashboardView extends ItemView {
     const todayTasks = this.plugin.getTaskManager().getTodayTasks();
     const overdueTasks = this.plugin.getTaskManager().getOverdueTasks();
     const importantTasks = this.plugin.getTaskManager().getImportantTasks();
+    const focusGoals = allGoals
+      .filter(goal => goal['A-starred'] === true)
+      .sort((a, b) => (b['A-weight'] - a['A-weight']) || (b['A-progress'] - a['A-progress']));
 
     // 获取当前筛选和分组设置
     const currentFilters = this.getCurrentFilters();
@@ -591,7 +594,7 @@ export class DashboardView extends ItemView {
         ${['list', 'board', 'gallery'].includes(this.currentView) ? this.filterHelper.renderFilterBar(currentFilters) : ''}
 
         <div class="al-body">
-          ${this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, importantTasks)}
+          ${this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, importantTasks, focusGoals)}
         </div>
       </div>
     `;
@@ -636,17 +639,17 @@ export class DashboardView extends ItemView {
     });
   }
 
-  private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], importantTasks: Task[]): string {
+  private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], importantTasks: Task[], focusGoals: Goal[]): string {
     // 对目标进行筛选
     const filteredGoals = this.filterHelper.applyFilterConditions(allGoals);
 
     switch (this.currentView) {
-      case 'goal-detail': return this.selectedGoalId ? this.detailRenderer.renderGoalDetailView(this.selectedGoalId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, this.dashboardTaskMode);
-      case 'task-detail': return this.selectedTaskId ? this.detailRenderer.renderTaskDetailView(this.selectedTaskId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, this.dashboardTaskMode);
+      case 'goal-detail': return this.selectedGoalId ? this.detailRenderer.renderGoalDetailView(this.selectedGoalId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, focusGoals, this.dashboardTaskMode);
+      case 'task-detail': return this.selectedTaskId ? this.detailRenderer.renderTaskDetailView(this.selectedTaskId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, focusGoals, this.dashboardTaskMode);
       case 'list': return this.dashboardRenderer.renderListView(filteredGoals, allTasks);
       case 'board': return this.boardRenderer.renderBoardView(filteredGoals, allTasks);
       case 'gallery': return this.galleryRenderer.renderGalleryView(filteredGoals, allTasks);
-      default: return this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, this.dashboardTaskMode);
+      default: return this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, focusGoals, this.dashboardTaskMode);
     }
   }
 
