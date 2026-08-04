@@ -10,7 +10,7 @@
  */
 
 import type { DashboardView } from '../DashboardView';
-import { Goal, Task, TaskField } from '../../types';
+import { Goal, Task, TaskField, STATUS_NAMES } from '../../types';
 
 export class DashboardRenderer {
   constructor(private view: DashboardView) {}
@@ -89,8 +89,9 @@ export class DashboardRenderer {
     const priorityColors = ['var(--text-red)', 'var(--text-orange)', 'var(--text-yellow)', 'var(--text-green)', 'var(--text-muted)'];
     return tasks.slice(0, 10).map(task => `
       <div class="al-task-item al-dashboard-task-item" data-task-id="${task['A-id']}">
-        <input type="checkbox" class="task-list-item-checkbox" ${task['A-status'] === 'completed' ? 'checked' : ''} data-task-id="${task['A-id']}">
-        <div class="al-task-title ${task['A-status'] === 'completed' ? 'done' : ''}">${task['A-title']}</div>
+        <input type="checkbox" class="task-list-item-checkbox" data-status="${task['A-status']}" ${task['A-status'] === 'completed' ? 'checked' : ''} data-task-id="${task['A-id']}">
+        <div class="al-task-title ${task['A-status'] === 'completed' ? 'done' : task['A-status'] === 'cancelled' ? 'cancelled' : ''}">${task['A-title']}</div>
+        ${task['A-status'] === 'in-progress' || task['A-status'] === 'cancelled' ? `<span class="al-task-status status-${task['A-status']}">${STATUS_NAMES[task['A-status']]}</span>` : ''}
         <div class="al-task-priority" style="color: ${priorityColors[task['A-priority'] - 1]}">${['🔴', '🟠', '🟡', '🟢', '⚪'][task['A-priority'] - 1]}</div>
       </div>
     `).join('');

@@ -638,7 +638,7 @@ export class EventManager {
     const view = this.view;
     const task = view.plugin.getTaskManager().getTask(taskId);
     if (!task) return;
-    try { if (task['A-status'] === 'completed') { await view.plugin.getTaskManager().updateTask(taskId, { status: 'pending' }); } else { await view.plugin.getTaskManager().completeTask(taskId); } view.loadAndRender(); } catch (error) { new Notice('更新失败: ' + (error as Error).message); }
+    try { if (task['A-status'] === 'completed' || task['A-status'] === 'cancelled') { await view.plugin.getTaskManager().updateTask(taskId, { status: 'pending' }); } else { await view.plugin.getTaskManager().completeTask(taskId); } view.loadAndRender(); } catch (error) { new Notice('更新失败: ' + (error as Error).message); }
   }
 
   async loadGoalReferences(): Promise<void> {
