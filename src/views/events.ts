@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Dashboard View - Event Manager
  *
  * 从 DashboardView.ts 抽出的事件绑定与引用加载逻辑：
@@ -21,6 +21,39 @@ export class EventManager {
   bindEvents(): void {
     const view = this.view;
     const content = view.contentEl;
+
+    // 仪表盘「通讯录」面板：唯一一个添加联系人的入口
+    content.querySelector('#al-dashboard-add-contact-btn')?.addEventListener('click', () => {
+      view.modalHelper.showCreateContactModal();
+    });
+    content.querySelector('#al-dashboard-add-contact-link')?.addEventListener('click', () => {
+      view.modalHelper.showCreateContactModal();
+    });
+
+    // 联系人卡片点击：仪表盘面板卡片统一跳转详情页
+    content.querySelectorAll<HTMLElement>('[data-contact-id]').forEach(node => {
+      node.style.cursor = 'pointer';
+      node.addEventListener('click', () => {
+        const id = node.getAttribute('data-contact-id');
+        if (id) view.navigateTo('contact-detail', null, null, id);
+      });
+    });
+    content.querySelector('#al-contact-back-btn')?.addEventListener('click', () => {
+      view.goBack();
+    });
+    const handleMark = async () => {
+      if (!view.selectedContactId) return;
+      try {
+        await view.plugin.getContactManager().recordInteraction(view.selectedContactId);
+        new Notice('已记录为今天联系');
+        view.loadAndRender();
+      } catch (err) {
+        new Notice('记录失败: ' + (err as Error).message);
+      }
+    };
+    const handleDelete = () => { if (view.selectedContactId) view.modalHelper.showDeleteContactModal(view.selectedContactId); };
+    content.querySelector('#al-contact-mark-btn')?.addEventListener('click', handleMark);
+    content.querySelector('#al-contact-delete-btn')?.addEventListener('click', handleDelete);
 
     // Calendar events
     view.calendarRenderer.bindCalendarEvents(content);
@@ -228,7 +261,7 @@ export class EventManager {
       });
     });
 
-    // 字段行内编辑事件
+    // 字段行内编辑事件（目标 / 联系人共用 click 委托）
     content.querySelectorAll('.al-field-row[data-field], .al-progress-field-row[data-field], .al-detail-description-block[data-field]').forEach(row => {
       row.addEventListener('click', (e) => {
         const target = e.target as HTMLElement;
@@ -236,7 +269,11 @@ export class EventManager {
         const field = row.getAttribute('data-field');
         const value = row.getAttribute('data-value');
         const fieldType = row.querySelector('.al-field-editable')?.getAttribute('data-field-type');
-        if (field && fieldType && field !== 'cover' && field !== 'parent' && view.selectedGoalId) {
+        if (!field || !fieldType) return;
+        if (view.currentView === 'contact-detail' && view.selectedContactId) {
+          // 联系人详情页：使用 startContactFieldEdit 走 ContactManager
+          view.modalHelper.startContactFieldEdit(row as HTMLElement, field, fieldType, value || '');
+        } else if (field !== 'cover' && field !== 'parent' && view.selectedGoalId) {
           view.modalHelper.startFieldEdit(row as HTMLElement, field, fieldType, value || '');
         }
       });
@@ -787,6 +824,32 @@ export class EventManager {
       console.error('加载引用记录失败:', error);
       loadingEl.remove();
       contentEl.innerHTML = `<div class="al-detail-references-error">加载引用记录失败</div>`;
+    }
+  }
+
+  async loadContactInteractions(): Promise<void> {
+    const view = this.view;
+    if (view.currentView !== 'contact-detail' || !view.selectedContactId) {
+      return;
+    }
+    const container = view.contentEl.querySelector('#al-contact-interactions-container');
+    if (!container) return;
+    try {
+      const items = await view.plugin.getContactManager().getContactInteractions(view.selectedContactId);
+      container.innerHTML = view.contactRenderer.renderContactInteractions(items);
+      container.querySelectorAll<HTMLElement>('.al-detail-reference-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const filePath = item.getAttribute('data-file-path');
+          if (filePath) {
+            const file = view.plugin.app.vault.getAbstractFileByPath(filePath);
+            if (file) {
+              view.plugin.app.workspace.openLinkText(file.path, '');
+            }
+          }
+        });
+      });
+    } catch (err) {
+      container.innerHTML = '<div class="al-empty-text">加载失败: ' + (err as Error).message + '</div>';
     }
   }
 }

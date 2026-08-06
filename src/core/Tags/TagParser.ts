@@ -10,6 +10,7 @@ export class TagParser {
   private taskTagPattern!: RegExp;
   private noteworthyPattern!: RegExp;
   private taskCheckboxPattern!: RegExp;
+  private contactTagPattern!: RegExp;
   
   constructor(settings: PluginSettings) {
     this.updatePatterns(settings);
@@ -27,6 +28,9 @@ export class TagParser {
     
     // 任务行: - [ ] 或 - [x] 或 - [>]
     this.taskCheckboxPattern = /^- \[([ x>])\]/;
+
+    // 联系人标签: #tagPrefix/xxx
+    this.contactTagPattern = new RegExp(`#` + settings.contactTagPrefix + `/([^\s#]+)`, 'g');
   }
   
   /**
@@ -43,6 +47,7 @@ export class TagParser {
   parseLine(line: string, lineNumber: number): ParsedLine {
     const goalTags = this.extractGoalTags(line);
     const taskTags = this.extractTaskTags(line);
+    const contactTags = this.extractContactTags(line);
     const isNoteworthy = this.noteworthyPattern.test(line);
     const isTask = this.taskCheckboxPattern.test(line);
     
@@ -67,6 +72,7 @@ export class TagParser {
       const tagName = tag.slice(1);
       return !tagName.startsWith('目标/') && 
              !tagName.startsWith('任务/') && 
+             !this.contactTagPattern.test('#' + tagName) &&
              tagName.toLowerCase() !== 'noteworthy';
     }).map(tag => tag.slice(1));
     
@@ -77,6 +83,7 @@ export class TagParser {
       taskStatus,
       goalTags,
       taskTags,
+      contactTags,
       isNoteworthy,
       categoryTags
     };
@@ -100,6 +107,15 @@ export class TagParser {
     return matches.map(tag => tag.slice(1)); // 去掉 # 号
   }
   
+  /**
+   * 提取所有联系人标签
+   */
+  extractContactTags(content: string): string[] {
+    const matches = content.match(this.contactTagPattern);
+    if (!matches) return [];
+    return matches.map(tag => tag.slice(1));
+  }
+
   /**
    * 提取所有 #noteworthy 标记的行
    */

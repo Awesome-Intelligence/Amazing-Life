@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Amazing Life - 系统性生活管理</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23667eea'/%3E%3Cstop offset='100%25' stop-color='%23764ba2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Ctext x='50%25' y='54%25' text-anchor='middle' dominant-baseline='middle' font-size='36' font-weight='700' fill='white' font-family='Inter, sans-serif'%3E✦%3C/text%3E%3C/svg%3E">
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --bg-primary: #0a0a0f;
+    --bg-secondary: #12121a;
+    --bg-card: #1a1a24;
+    --bg-card-hover: #22222f;
+    --accent-start: #667eea;
+    --accent-end: #764ba2;
+    --accent-glow: rgba(102, 126, 234, 0.4);
+    --text-primary: #ffffff;
+    --text-secondary: #a0a0b0;
+    --text-muted: #6b6b7b;
+    --border: rgba(255, 255, 255, 0.08);
+    --border-hover: rgba(255, 255, 255, 0.15);
+  }
+
+  body {
+    font-family: 'Inter', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* Background Effects */
+  .bg-effects {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  .bg-effects::before,
+  .bg-effects::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(120px);
+  }
+
+  .bg-effects::before {
+    width: 600px; height: 600px;
+    background: radial-gradient(circle, var(--accent-glow), transparent 70%);
+    top: -200px; right: -200px;
+    animation: float 20s ease-in-out infinite;
+  }
+
+  .bg-effects::after {
+    width: 500px; height: 500px;
+    background: radial-gradient(circle, rgba(118, 75, 162, 0.3), transparent 70%);
+    bottom: -150px; left: -150px;
+    animation: float 25s ease-in-out infinite reverse;
+  }
+
+  @keyframes float {
+    0%, 100% { transform: translate(0, 0); }
+    50% { transform: translate(50px, 30px); }
+  }
+
+  .container {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 24px;
+    position: relative;
+    z-index: 1;
+  }
+
+  /* Navigation */
+  nav {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    padding: 20px 0;
+    background: rgba(10, 10, 15, 0.8);
+    backdrop-filter: blur(20px);
+    border-bottom: 1px solid var(--border);
+    z-index: 100;
+  }
+
+  .nav-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-icon {
+    width: 36px; height: 36px;
+    background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+  }
+
+  .nav-links {
+    display: flex;
+    gap: 32px;
+    list-style: none;
+  }
+
+  .nav-links a {
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    transition: color 0.3s;
+  }
+
+  .nav-links a:hover { color: var(--text-primary); }
+
+  .nav-cta {
+    padding: 10px 20px;
+    background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+    border-radius: 8px;
+    color: white;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 600;
+    transition: transform 0.3s, box-shadow 0.3s;
+  }
+
+  .nav-cta:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 30px var(--accent-glow);
+  }
+
+  /* Hero Section */
+  .hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 120px 0 80px;
+  }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    background: rgba(102, 126, 234, 0.1);
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    border-radius: 100px;
+    font-size: 13px;
+    color: var(--accent-start);
+    margin-bottom: 32px;
+  }
+
+  .badge-dot {
+    width: 8px; height: 8px;
+    background: var(--accent-start);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  .hero h1 {
+    font-size: clamp(48px, 8vw, 96px);
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -2px;
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, #fff 0%, #a0a0b0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero h1 .gradient-text {
+    background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero p {
+    font-size: clamp(18px, 2vw, 24px);
+    color: var(--text-secondary);
+    max-width: 640px;
+    margin-bottom: 48px;
+    font-weight: 300;
+  }
+
+  .cta-buttons {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .btn-primary {
+    padding: 16px 32px;
+    background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+    border-radius: 12px;
+    color: white;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 16px;
+    transition: all 0.3s;
+    border: none;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 15px 40px var(--accent-glow);
+  }
+
+  .btn-secondary {
+    padding: 16px 32px;
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 16px;
+    transition: all 0.3s;
+  }
+
+  .btn-secondary:hover {
+    background: var(--bg-card);
+    border-color: var(--border-hover);
+  }
+
+  /* Section Styles */
+  section {
+    padding: 100px 0;
+  }
+
+  .section-header {
+    text-align: center;
+    margin-bottom: 64px;
+  }
+
+  .section-tag {
+    display: inline-block;
+    padding: 6px 14px;
+    background: rgba(102, 126, 234, 0.1);
+    border: 1px solid rgba(102, 126, 234, 0.2);
+    border-radius: 6px;
+    font-size: 12px;
+    color: var(--accent-start);
+    font-weight: 600;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
+
+  .section-header h2 {
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 700;
+    letter-spacing: -1px;
+    margin-bottom: 16px;
+  }
+
+  .section-header p {
+    font-size: 18px;
+    color: var(--text-secondary);
+    max-width: 600px;
+    margin: 0 auto;
+  }
+
+  /* Features Grid */
+  .features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 24px;
+  }
+
+  .feature-card {
+    padding: 32px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+  }
+
+  .feature-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--accent-start), var(--accent-end));
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+
+  .feature-card:hover {
+    transform: translateY(-4px);
+    background: var(--bg-card-hover);
+    border-color: var(--border-hover);
+  }
+
+  .feature-card:hover::before { opacity: 1; }
+
+  .feature-icon {
+    width: 56px; height: 56px;
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.2), rgba(118, 75, 162, 0.2));
+    border: 1px solid rgba(102, 126, 234, 0.3);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    margin-bottom: 20px;
+  }
+
+  .feature-card h3 {
+    font-size: 20px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  .feature-card p {
+    color: var(--text-secondary);
+    font-size: 15px;
+    line-height: 1.7;
+  }
+
+  /* Workflow Section */
+  .workflow {
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .workflow-steps {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 32px;
+    position: relative;
+  }
+
+  .workflow-step {
+    text-align: center;
+    padding: 40px 32px;
+    position: relative;
+  }
+
+  .step-number {
+    width: 64px; height: 64px;
+    background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    font-weight: 700;
+    margin: 0 auto 24px;
+    box-shadow: 0 10px 30px var(--accent-glow);
+  }
+
+  .workflow-step h3 {
+    font-size: 22px;
+    font-weight: 600;
+    margin-bottom: 12px;
+  }
+
+  .workflow-step p {
+    color: var(--text-secondary);
+    font-size: 15px;
+  }
+
+  .step-arrow {
+    position: absolute;
+    top: 72px;
+    right: -16px;
+    font-size: 24px;
+    color: var(--accent-start);
+    opacity: 0.5;
+  }
+
+  /* Views Showcase */
+  .views-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 20px;
+  }
+
+  .view-card {
+    padding: 28px 24px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    text-align: center;
+    transition: all 0.3s;
+  }
+
+  .view-card:hover {
+    transform: translateY(-3px);
+    border-color: var(--border-hover);
+    background: var(--bg-card-hover);
+  }
+
+  .view-icon {
+    font-size: 32px;
+    margin-bottom: 16px;
+  }
+
+  .view-card h4 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+
+  .view-card p {
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  /* Stats Section */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 24px;
+    margin-bottom: 64px;
+  }
+
+  .stat-card {
+    padding: 32px;
+    background: linear-gradient(135deg, var(--bg-card) 0%, var(--bg-secondary) 100%);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    text-align: center;
+  }
+
+  .stat-value {
+    font-size: 48px;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 8px;
+  }
+
+  .stat-label {
+    color: var(--text-secondary);
+    font-size: 14px;
+  }
+
+  /* Tech Stack */
+  .tech-stack {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    max-width: 700px;
+    margin: 0 auto;
+  }
+
+  .tech-tag {
+    padding: 10px 20px;
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    font-size: 14px;
+    color: var(--text-secondary);
+    transition: all 0.3s;
+  }
+
+  .tech-tag:hover {
+    background: var(--bg-card-hover);
+    color: var(--text-primary);
+    border-color: var(--border-hover);
+  }
+
+  /* CTA Section */
+  .cta-section {
+    text-align: center;
+    padding: 100px 0;
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+  }
+
+  .cta-section h2 {
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 700;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, #fff 0%, #a0a0b0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .cta-section p {
+    color: var(--text-secondary);
+    font-size: 18px;
+    margin-bottom: 40px;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* Footer */
+  footer {
+    padding: 60px 0 40px;
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border);
+  }
+
+  .footer-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+  }
+
+  .footer-logo {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 18px;
+    font-weight: 700;
+  }
+
+  .footer-links {
+    display: flex;
+    gap: 24px;
+    list-style: none;
+  }
+
+  .footer-links a {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-size: 14px;
+    transition: color 0.3s;
+  }
+
+  .footer-links a:hover { color: var(--text-primary); }
+
+  .footer-copy {
+    color: var(--text-muted);
+    font-size: 13px;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    nav { padding: 16px 0; }
+    .nav-links { display: none; }
+    .hero { padding: 100px 0 60px; }
+    section { padding: 60px 0; }
+    .feature-card, .workflow-step { padding: 24px; }
+    .step-arrow { display: none; }
+    .footer-links { flex-direction: column; gap: 16px; text-align: center; }
+  }
+
+  /* Scroll Animations */
+  .fade-in {
+    opacity: 0;
+    transform: translateY(30px);
+    transition: opacity 0.8s ease, transform 0.8s ease;
+  }
+
+  .fade-in.visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+</style>
+</head>
+<body>
+
+<div class="bg-effects"></div>
+
+<nav>
+  <div class="container nav-content">
+    <div class="logo">
+      <div class="logo-icon">✦</div>
+      Amazing Life
+    </div>
+    <ul class="nav-links">
+      <li><a href="#features">核心特性</a></li>
+      <li><a href="#workflow">工作流程</a></li>
+      <li><a href="#views">视图展示</a></li>
+      <li><a href="#tech">技术栈</a></li>
+    </ul>
+    <a href="#cta" class="nav-cta">立即开始</a>
+  </div>
+</nav>
+
+<!-- Hero Section -->
+<section class="hero">
+  <div class="container">
+    <div class="badge">
+      <span class="badge-dot"></span>
+      Obsidian 生活管理插件
+    </div>
+    <h1>
+      规划 · 追踪 · 回顾<br>
+      <span class="gradient-text">系统性管理你的人生</span>
+    </h1>
+    <p>以 Markdown 为核心的数据驱动生活管理系统，帮助你建立目标、追踪进展、回顾成长。</p>
+    <div class="cta-buttons">
+      <a href="#cta" class="btn-primary">
+        开始使用 →
+      </a>
+      <a href="#features" class="btn-secondary">了解更多</a>
+    </div>
+  </div>
+</section>
+
+<!-- Features Section -->
+<section id="features">
+  <div class="container">
+    <div class="section-header fade-in">
+      <span class="section-tag">核心特性</span>
+      <h2>为什么选择 Amazing Life</h2>
+      <p>专为追求高效生活的你而设计</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card fade-in">
+        <div class="feature-icon">🎯</div>
+        <h3>四级目标体系</h3>
+        <p>从人生目标到短期计划，完整的四级层级结构，让每一步行动都服务于你的远大理想。</p>
+      </div>
+      <div class="feature-card fade-in">
+        <div class="feature-icon">📝</div>
+        <h3>Markdown 优先</h3>
+        <p>所有数据以 .md 文件存储，你可以直接阅读和编辑，数据完全掌控在你手中。</p>
+      </div>
+      <div class="feature-card fade-in">
+        <div class="feature-icon">🔄</div>
+        <h3>规划·追踪·回顾</h3>
+        <p>闭环工作流：规划目标、日常追踪、定期回顾，让习惯真正落地，让进步看得见。</p>
+      </div>
+      <div class="feature-card fade-in">
+        <div class="feature-icon">📊</div>
+        <h3>实时数据查询</h3>
+        <p>集成 Dataview 实时查询，自动汇总 #noteworthy 记录，生成周报、月报、年报。</p>
+      </div>
+      <div class="feature-card fade-in">
+        <div class="feature-icon">🗂️</div>
+        <h3>多视图展示</h3>
+        <p>列表、看板、画廊、日历、时间线、仪表盘，六种视图自由切换，总有一款适合你。</p>
+      </div>
+      <div class="feature-card fade-in">
+        <div class="feature-icon">🔒</div>
+        <h3>本地数据安全</h3>
+        <p>所有数据存储在本地 vault，支持备份恢复，你的隐私永远是第一位的。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Workflow Section -->
+<section class="workflow" id="workflow">
+  <div class="container">
+    <div class="section-header fade-in">
+      <span class="section-tag">工作流程</span>
+      <h2>简单三步，掌控人生</h2>
+      <p>建立可持续的生活管理节奏</p>
+    </div>
+    <div class="workflow-steps">
+      <div class="workflow-step fade-in">
+        <div class="step-number">01</div>
+        <h3>规划</h3>
+        <p>在仪表盘创建目标树，分解为可执行的任务，设定截止日期和优先级。</p>
+        <div class="step-arrow">→</div>
+      </div>
+      <div class="workflow-step fade-in">
+        <div class="step-number">02</div>
+        <h3>追踪</h3>
+        <p>在日记中用 #目标/xxx、#任务/xxx 标签标记进展，让日常行动有据可查。</p>
+        <div class="step-arrow">→</div>
+      </div>
+      <div class="workflow-step fade-in">
+        <div class="step-number">03</div>
+        <h3>回顾</h3>
+        <p>查看提及历史、目标进度、#noteworthy 汇总，用数据驱动下一轮规划。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Views Section -->
+<section id="views">
+  <div class="container">
+    <div class="section-header fade-in">
+      <span class="section-tag">多种视图</span>
+      <h2>用最适合的方式查看你的数据</h2>
+      <p>六种视图模式，灵活满足不同场景需求</p>
+    </div>
+    <div class="views-grid">
+      <div class="view-card fade-in">
+        <div class="view-icon">📋</div>
+        <h4>列表视图</h4>
+        <p>清晰的列表形式，支持排序和筛选</p>
+      </div>
+      <div class="view-card fade-in">
+        <div class="view-icon">🗄️</div>
+        <h4>看板视图</h4>
+        <p>按状态/标签/目标分组，拖拽即更新</p>
+      </div>
+      <div class="view-card fade-in">
+        <div class="view-icon">🖼️</div>
+        <h4>画廊视图</h4>
+        <p>卡片网格展示，视觉化呈现</p>
+      </div>
+      <div class="view-card fade-in">
+        <div class="view-icon">📅</div>
+        <h4>日历视图</h4>
+        <p>按日期组织，直观查看时间分布</p>
+      </div>
+      <div class="view-card fade-in">
+        <div class="view-icon">📈</div>
+        <h4>时间线视图</h4>
+        <p>展示目标里程碑和进展轨迹</p>
+      </div>
+      <div class="view-card fade-in">
+        <div class="view-icon">🎛️</div>
+        <h4>仪表盘视图</h4>
+        <p>统计概览、进度热力图、今日待办</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Stats Section -->
+<section>
+  <div class="container">
+    <div class="stats">
+      <div class="stat-card fade-in">
+        <div class="stat-value">4</div>
+        <div class="stat-label">目标层级体系</div>
+      </div>
+      <div class="stat-card fade-in">
+        <div class="stat-value">6</div>
+        <div class="stat-label">视图展示模式</div>
+      </div>
+      <div class="stat-card fade-in">
+        <div class="stat-value">∞</div>
+        <div class="stat-label">层级记录支持</div>
+      </div>
+      <div class="stat-card fade-in">
+        <div class="stat-value">100%</div>
+        <div class="stat-label">本地数据存储</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Tech Section -->
+<section id="tech">
+  <div class="container">
+    <div class="section-header fade-in">
+      <span class="section-tag">技术栈</span>
+      <h2>基于成熟技术构建</h2>
+      <p>简洁、可靠、可扩展的技术选型</p>
+    </div>
+    <div class="tech-stack fade-in">
+      <span class="tech-tag">Obsidian API</span>
+      <span class="tech-tag">TypeScript</span>
+      <span class="tech-tag">Vite</span>
+      <span class="tech-tag">Dataview</span>
+      <span class="tech-tag">Markdown</span>
+      <span class="tech-tag">CSS Variables</span>
+      <span class="tech-tag">Chart.js</span>
+      <span class="tech-tag">esbuild</span>
+    </div>
+  </div>
+</section>
+
+<!-- CTA Section -->
+<section class="cta-section" id="cta">
+  <div class="container">
+    <div class="fade-in">
+      <h2>开始你的 Amazing Life 旅程</h2>
+      <p>在 Obsidian 中安装插件，用系统化的方法管理生活的每一个方面。</p>
+      <div class="cta-buttons">
+        <a href="#" class="btn-primary">
+          安装插件 →
+        </a>
+        <a href="#" class="btn-secondary">查看文档</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container footer-content">
+    <div class="footer-logo">
+      <div class="logo-icon" style="width: 32px; height: 32px; font-size: 16px;">✦</div>
+      Amazing Life
+    </div>
+    <ul class="footer-links">
+      <li><a href="#features">核心特性</a></li>
+      <li><a href="#workflow">工作流程</a></li>
+      <li><a href="#views">视图</a></li>
+      <li><a href="#tech">技术栈</a></li>
+    </ul>
+    <p class="footer-copy">© 2026 Amazing Life. 让生活更有意义。</p>
+  </div>
+</footer>
+
+<script>
+  // Scroll Animations
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.1 });
+
+  document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+
+  // Smooth Scroll
+  document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function(e) {
+      e.preventDefault();
+      const target = document.querySelector(this.getAttribute('href'));
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    });
+  });
+</script>
+
+</body>
+</html>

@@ -32,6 +32,13 @@ export class FileStorage {
   getGoalsPath(): string {
     return `${this.settings.dataPath}/goals`;
   }
+
+  /**
+   * 获取联系人目录
+   */
+  getContactsPath(): string {
+    return this.settings.contactPath || `${this.settings.dataPath}/contacts`;
+  }
   
   /**
    * 获取任务目录
@@ -57,6 +64,7 @@ export class FileStorage {
     await this.ensureDirectory(this.settings.dataPath);
     await this.ensureDirectory(this.getGoalsPath());
     await this.ensureDirectory(this.getTasksPath());
+    await this.ensureDirectory(this.getContactsPath());
     await this.ensureDirectory(this.settings.dailyPath);
     await this.ensureDirectory(this.settings.weeklyPath);
     await this.ensureDirectory(this.settings.monthlyPath);
@@ -142,7 +150,7 @@ export class FileStorage {
   /**
    * 生成唯一的 ID
    */
-  generateId(type: 'goal' | 'task'): string {
+  generateId(type: 'goal' | 'task' | 'contact'): string {
     const timestamp = Date.now().toString(36);
     const random = Math.random().toString(36).substring(2, 6);
     return `${type}-${timestamp}${random}`;
@@ -230,6 +238,39 @@ export class FileStorage {
   getTaskPath(id: string): string {
     return `${this.getTasksPath()}/${id}.md`;
   }
+
+  /**
+   * 生成联系人文件路径（按 ID）
+   */
+  getContactPath(id: string): string {
+    return `${this.getContactsPath()}/${id}.md`;
+  }
+
+  /**
+   * 根据联系人姓名生成文件路径
+   */
+  getContactPathByTitle(title: string): string {
+    const safeTitle = title.replace(/[\\/:*?"<>|]/g, '_').substring(0, 100);
+    return `${this.getContactsPath()}/${safeTitle}.md`;
+  }
+
+  /**
+   * 根据联系人姓名获取文件
+   */
+  getContactFileByTitle(title: string): TFile | null {
+    const path = this.getContactPathByTitle(title);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    return file instanceof TFile ? file : null;
+  }
+
+  /**
+   * 根据联系人 ID 获取文件
+   */
+  getContactFile(id: string): TFile | null {
+    const path = this.getContactPath(id);
+    const file = this.app.vault.getAbstractFileByPath(path);
+    return file instanceof TFile ? file : null;
+  }
   
   /**
    * 获取引用目标文件的反向链接
@@ -287,6 +328,7 @@ export class FileStorage {
     content: string;
     lines: number[];
   }>> {
+
     const taskPath = this.getTaskPath(taskId);
     const taskFile = this.app.vault.getAbstractFileByPath(taskPath);
     
@@ -326,4 +368,35 @@ export class FileStorage {
     
     return result;
   }
+
+  /**
+   * 通过 #tagPrefix/姓名 标签扫描所有笔记，提取联系人互动记录
+   * 标签不是 wikilink，不能依赖 resolvedLinks
+   */
+  async getBacklinksForContact(contactName: string, tagPrefix: string): Promise<Array<{
+    file: TFile;
+    content: string;
+    lines: number[];
+  }>> {
+    const result: Array<{ file: TFile; content: string; lines: number[]; }> = [];
+    const escapedName = contactName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const tagPattern = new RegExp('#' + tagPrefix + '\\/' + escapedName + '(?=[^\\w]|$)');
+
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      const content = await this.app.vault.cachedRead(file);
+      const lines = content.split(/\r?\n/);
+      const matchedLines: number[] = [];
+      for (let i = 0; i < lines.length; i++) {
+        if (tagPattern.test(lines[i])) {
+          matchedLines.push(i);
+        }
+      }
+      if (matchedLines.length > 0) {
+        result.push({ file, content, lines: matchedLines });
+      }
+    }
+
+    return result;
+
+}
 }

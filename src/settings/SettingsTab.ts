@@ -142,6 +142,56 @@ export class SettingsTab extends PluginSettingTab {
         });
       });
     
+
+    // 联系人设置
+    containerEl.createEl('h3', { text: '联系人设置' });
+
+    new Setting(containerEl)
+      .setName('联系人目录')
+      .setDesc('存储联系人数据')
+      .addText(text => {
+        text.setValue(this.settings.contactPath);
+        text.onChange(value => {
+          this.settings.contactPath = value || DEFAULT_SETTINGS.contactPath;
+          this.onSettingsChange(this.settings);
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('联系人标签前缀')
+      .setDesc('用于 #人脉/xxx 标签')
+      .addText(text => {
+        text.setValue(this.settings.contactTagPrefix);
+        text.onChange(value => {
+          this.settings.contactTagPrefix = value || DEFAULT_SETTINGS.contactTagPrefix;
+          this.onSettingsChange(this.settings);
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('默认联系间隔')
+      .setDesc('新建联系人时，多少天没联系就提醒（天）')
+      .addText(text => {
+        text.inputEl.type = 'number';
+        text.setValue(String(this.settings.contactDefaultInterval));
+        text.onChange(value => {
+          const n = parseInt(value, 10);
+          this.settings.contactDefaultInterval = isNaN(n) ? 90 : n;
+          this.onSettingsChange(this.settings);
+        });
+      });
+
+    new Setting(containerEl)
+      .setName('关系类型')
+      .setDesc('逗号分隔，如：家人,朋友,同事,客户,导师,同学,其他')
+      .addText(text => {
+        text.setValue((this.settings.contactRelations || []).join(','));
+        text.onChange(value => {
+          this.settings.contactRelations = value.split(',').map(s => s.trim()).filter(Boolean);
+          this.onSettingsChange(this.settings);
+        });
+      });
+
     // 其他设置
     containerEl.createEl('h3', { text: '其他设置' });
     

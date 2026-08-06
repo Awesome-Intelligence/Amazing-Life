@@ -10,6 +10,7 @@ import { FileStorage } from './storage/FileStorage';
 import { GoalManager } from './core/Goals/GoalManager';
 import { TaskManager } from './core/Tasks/TaskManager';
 import { NoteManager } from './core/Notes/NoteManager';
+import { ContactManager } from './core/Contacts/ContactManager';
 import { SettingsTab } from './settings/SettingsTab';
 import { DashboardView, DASHBOARD_VIEW_TYPE } from './views/DashboardView';
 
@@ -20,6 +21,7 @@ export default class AmazingLife extends Plugin {
   private goalManager!: GoalManager;
   private taskManager!: TaskManager;
   private noteManager!: NoteManager;
+  private contactManager!: ContactManager;
   
   async onload(): Promise<void> {
     console.log('Amazing Life loaded');
@@ -54,6 +56,7 @@ export default class AmazingLife extends Plugin {
         this.goalManager.updateSettings(this.lifeSettings);
         this.taskManager.updateSettings(this.lifeSettings);
         this.noteManager.updateSettings(this.lifeSettings);
+        this.contactManager.updateSettings(this.lifeSettings);
         
         new Notice('设置已保存');
       }
@@ -108,6 +111,7 @@ export default class AmazingLife extends Plugin {
     // Load data
     await this.goalManager.loadGoals();
     await this.taskManager.loadTasks();
+    await this.contactManager.loadContacts();
   }
   
   onunload(): void {
@@ -122,6 +126,7 @@ export default class AmazingLife extends Plugin {
     this.goalManager = new GoalManager(this.storage, this.lifeSettings);
     this.taskManager = new TaskManager(this.storage, this.lifeSettings);
     this.noteManager = new NoteManager(this.storage, this.lifeSettings);
+    this.contactManager = new ContactManager(this.storage, this.lifeSettings);
   }
   
   private addStyles(): void {
@@ -240,6 +245,10 @@ export default class AmazingLife extends Plugin {
   
   getNoteManager(): NoteManager {
     return this.noteManager;
+  }
+
+  getContactManager(): ContactManager {
+    return this.contactManager;
   }
   
   getTagParser(): TagParser {

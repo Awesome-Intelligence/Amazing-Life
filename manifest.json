@@ -5,7 +5,8 @@
   "minAppVersion": "0.15.0",
   "description": "Life management plugin for Obsidian",
   "author": "Amazing Life Team",
-  "authorUrl": "",
+  "authorUrl": "http://amazinglife.top/",
+  "homepage": "http://amazinglife.top/",
   "fundingUrl": "",
   "license": "MIT",
   "isDesktopOnly": false

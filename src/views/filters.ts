@@ -6,7 +6,7 @@
  */
 
 import type { DashboardView } from './DashboardView';
-import { FilterCondition, FilterLogic, FilterOperator, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, GOAL_GROUP_BY_FIELDS } from '../types';
+import { FilterCondition, FilterLogic, FilterOperator, FILTER_OPERATOR_LABELS, GOAL_FILTER_FIELDS, GOAL_GROUP_BY_FIELDS, Contact } from '../types';
 
 export class FilterHelper {
   constructor(private view: DashboardView) {}
@@ -404,5 +404,20 @@ export class FilterHelper {
     }
 
     return options;
+  }
+
+  /**
+   * 简单搜索过滤联系人（按 query）
+   */
+  applyContactFilters(contacts: Contact[], query?: string, includeQuery = false): Contact[] {
+    const q = (includeQuery && query ? query : ((document.querySelector('#al-contact-search') as HTMLInputElement)?.value || '')).toLowerCase();
+    if (!q) return contacts;
+    return contacts.filter(c =>
+      (c['A-title'] && c['A-title'].toLowerCase().includes(q)) ||
+      (c['A-nickname'] && c['A-nickname'].toLowerCase().includes(q)) ||
+      (c['A-company'] && c['A-company'].toLowerCase().includes(q)) ||
+      (c['A-job-title'] && c['A-job-title'].toLowerCase().includes(q)) ||
+      (c['A-tags'] && c['A-tags'].some((t: string) => t.toLowerCase().includes(q)))
+    );
   }
 }

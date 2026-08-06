@@ -14,6 +14,7 @@
  */
 
 import { Modal, Notice, Menu } from 'obsidian';
+import { CreateContactModal, EditContactModal } from './contact-modals';
 import type { DashboardView } from './DashboardView';
 import { DeleteConfirmModal } from './modals';
 import {
@@ -68,6 +69,33 @@ export class ViewModals {
     menu.showAtPosition({ x: rect.left, y: rect.bottom + 4 });
   }
 
+
+  // ========== 联系人弹窗 ==========
+  showCreateContactModal(): void {
+    new CreateContactModal(this.view).open();
+  }
+
+  showEditContactModal(contactId: string): void {
+    new EditContactModal(this.view, contactId).open();
+  }
+
+  showDeleteContactModal(contactId: string): void {
+    const c = this.view.plugin.getContactManager().getContact(contactId);
+    if (!c) return;
+    new DeleteConfirmModal(
+      this.view.plugin,
+      c['A-title'],
+      async () => {
+        await this.view.plugin.getContactManager().deleteContact(contactId);
+        new Notice('已删除');
+        this.view.selectedContactId = null;
+        this.view.navigateTo('dashboard');
+      },
+      { title: '删除联系人', confirmText: '删除' }
+    ).open();
+  }
+
+  // ========== 视图添加菜单中联系人选项 ==========
   // ========== 字段设置弹窗 ==========
   showFieldSettingsModal(): void {
     new FieldSettingsModal(this.view).open();
@@ -189,6 +217,105 @@ export class ViewModals {
         view.loadAndRender();
       } catch (error) {
         new Notice('更新失败: ' + (error as Error).message);
+        view.loadAndRender();
+      }
+    };
+
+    inputEl.addEventListener('blur', saveEdit);
+    inputEl.addEventListener('keydown', (e) => {
+      const event = e as KeyboardEvent;
+      if (event.key === 'Enter' && fieldType !== 'textarea') {
+        event.preventDefault();
+        saveEdit();
+      }
+      if (event.key === 'Escape') {
+        view.loadAndRender();
+      }
+    });
+
+    inputEl.focus();
+  }
+
+  /**
+   * 联系人字段内联编辑：复用 startFieldEdit 的控件构造，保存时改为 ContactManager.updateContact
+   */
+  startContactFieldEdit(row: HTMLElement, field: string, fieldType: string, currentValue: string): void {
+    const view = this.view;
+    const editableEl = row.querySelector('.al-field-editable') as HTMLElement | null;
+    if (!editableEl) return;
+
+    const settings = view.plugin.getSettings();
+    const relations = settings.contactRelations || ['家人', '朋友', '同事', '客户', '导师', '同学', '邻居', '其他'];
+    const statusOptions: Record<string, string> = { 'active': '活跃', 'archived': '已归档' };
+    const priorityOptions: Record<string, string> = { '1': '核心', '2': '重要', '3': '一般', '4': '偶尔' };
+    const genderOptions: Record<string, string> = { '': '未指定', 'male': '男', 'female': '女', 'other': '其他' };
+
+    let inputEl: HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
+
+    if (fieldType === 'select') {
+      inputEl = document.createElement('select');
+      inputEl.className = 'al-field-edit-select';
+      const map: Record<string, Record<string, string>> = {
+        'A-relation': relations.reduce<Record<string, string>>((acc, r) => { acc[r] = r; return acc; }, {}),
+        'A-status': statusOptions,
+        'A-priority': priorityOptions,
+        'A-gender': genderOptions
+      };
+      const opts = map[field];
+      if (opts) {
+        for (const value of Object.keys(opts)) {
+          const option = document.createElement('option');
+          option.value = value;
+          option.textContent = opts[value];
+          inputEl.appendChild(option);
+        }
+      }
+      inputEl.value = currentValue;
+    } else if (fieldType === 'date') {
+      inputEl = document.createElement('input');
+      inputEl.type = 'date';
+      inputEl.className = 'al-field-edit-input';
+      inputEl.value = currentValue || '';
+    } else if (fieldType === 'number') {
+      inputEl = document.createElement('input');
+      inputEl.type = 'number';
+      inputEl.className = 'al-field-edit-input';
+      inputEl.value = currentValue;
+      if (field === 'A-remind-interval') { inputEl.min = '0'; }
+    } else if (fieldType === 'textarea') {
+      inputEl = document.createElement('textarea');
+      inputEl.className = 'al-field-edit-textarea';
+      inputEl.rows = 4;
+      inputEl.value = currentValue;
+    } else {
+      inputEl = document.createElement('input');
+      inputEl.type = 'text';
+      inputEl.className = 'al-field-edit-input';
+      inputEl.value = currentValue;
+    }
+
+    editableEl.replaceWith(inputEl);
+
+    const saveEdit = async () => {
+      let saveValue: string = inputEl.value;
+      if (fieldType === 'textarea') saveValue = inputEl.value.trim();
+      const dto: Record<string, unknown> = {};
+      if (field === 'A-tags') {
+        dto[field] = saveValue.split(',').map(s => s.trim()).filter(Boolean);
+      } else if (field === 'A-remind-interval') {
+        dto[field] = Number(saveValue) || 0;
+      } else if (field === 'A-priority') {
+        dto[field] = Number(saveValue) || 3;
+      } else {
+        dto[field] = saveValue;
+      }
+      try {
+        if (!view.selectedContactId) return;
+        await view.plugin.getContactManager().updateContact(view.selectedContactId, dto as any);
+        new Notice('已保存');
+        view.loadAndRender();
+      } catch (error) {
+        new Notice('保存失败: ' + (error as Error).message);
         view.loadAndRender();
       }
     };

@@ -29,6 +29,7 @@ import { DashboardRenderer } from './renderers/dashboard';
 import { BoardRenderer } from './renderers/board';
 import { GalleryRenderer } from './renderers/gallery';
 import { DetailRenderer } from './renderers/detail';
+import { ContactRenderer } from './renderers/contacts';
 import { CalendarRenderer } from './renderers/calendar';
 import { ViewModals } from './view-modals';
 import { EventManager } from './events';
@@ -43,7 +44,7 @@ export class DashboardView extends ItemView {
   public currentView: ViewType = 'dashboard';
   public selectedGoalId: string | null = null;
   public selectedTaskId: string | null = null;
-  public calendarMode: CalendarViewMode = 'day';
+  public selectedContactId: string | null = null;  public calendarMode: CalendarViewMode = 'day';
   public calendarDate: Date = new Date();
   public dashboardTaskMode: DashboardTaskMode = 'overdue';
   public selectedWeekStart: string | null = null;
@@ -57,13 +58,14 @@ export class DashboardView extends ItemView {
   public dropTargetColumn: string | null = null;
   public dropTargetColumnType: string | null = null;
   // 导航历史
-  private viewHistory: Array<{ view: ViewType; goalId?: string | null; taskId?: string | null }> = [];
+  private viewHistory: Array<{ view: ViewType; goalId?: string | null; taskId?: string | null; contactId?: string | null }> = [];
   // 临时筛选状态（用于渲染和事件处理）
   public tempFilterConditions: FilterCondition[] = [];
   public tempFilterLogic: FilterLogic = 'and';
   public tempShowFilterBuilder: boolean = false;
   public tempFilterModified: boolean = false;  // 标记是否有未保存的修改
   public tempFilterEditingId: string | null = null;  // 当前正在编辑的条件ID
+  public tempFilterContactQuery: string = '';  // 联系人搜索关键字（视图内临时状态）
 
   // 各渲染/工具 helper（组合方式持有）
   public filterHelper: FilterHelper;
@@ -72,6 +74,7 @@ export class DashboardView extends ItemView {
   public galleryRenderer: GalleryRenderer;
   public detailRenderer: DetailRenderer;
   public calendarRenderer: CalendarRenderer;
+  public contactRenderer: ContactRenderer;
   public modalHelper: ViewModals;
   public eventHelper: EventManager;
 
@@ -122,6 +125,7 @@ export class DashboardView extends ItemView {
     this.galleryRenderer = new GalleryRenderer(this);
     this.detailRenderer = new DetailRenderer(this);
     this.calendarRenderer = new CalendarRenderer(this);
+    this.contactRenderer = new ContactRenderer(this);
     this.modalHelper = new ViewModals(this);
     this.eventHelper = new EventManager(this);
   }
@@ -137,6 +141,7 @@ export class DashboardView extends ItemView {
     try {
       await this.plugin.getGoalManager().loadGoals();
       await this.plugin.getTaskManager().loadTasks();
+      await this.plugin.getContactManager().loadContacts();
       this.render();
     } catch (error) {
       new Notice('加载数据失败: ' + (error as Error).message);
@@ -144,12 +149,13 @@ export class DashboardView extends ItemView {
   }
 
   // 导航到新页面并记录历史
-  public navigateTo(view: ViewType, goalId: string | null, taskId: string | null): void {
+  public navigateTo(view: ViewType, goalId: string | null = null, taskId: string | null = null, contactId: string | null = null): void {
     // 记录当前状态到历史
     this.viewHistory.push({
       view: this.currentView,
       goalId: this.selectedGoalId,
-      taskId: this.selectedTaskId
+      taskId: this.selectedTaskId,
+      contactId: this.selectedContactId
     });
 
     // 限制历史记录数量
@@ -161,6 +167,7 @@ export class DashboardView extends ItemView {
     this.currentView = view;
     this.selectedGoalId = goalId;
     this.selectedTaskId = taskId;
+    this.selectedContactId = contactId;
     this.render();
   }
 
@@ -171,12 +178,14 @@ export class DashboardView extends ItemView {
       this.currentView = prevState.view;
       this.selectedGoalId = prevState.goalId ?? null;
       this.selectedTaskId = prevState.taskId ?? null;
+      this.selectedContactId = prevState.contactId ?? null;
       this.render();
     } else {
       // 没有历史记录，返回仪表盘
       this.currentView = 'dashboard';
       this.selectedGoalId = null;
       this.selectedTaskId = null;
+      this.selectedContactId = null;
       this.render();
     }
   }
@@ -189,6 +198,16 @@ export class DashboardView extends ItemView {
     // 如果没有标签页，初始化默认标签
     if (!settings.viewTabs || settings.viewTabs.length === 0) {
       settings.viewTabs = getDefaultViewTabs();
+      this.plugin.saveSettings();
+    }
+    // 一次性迁移：过滤掉旧的 contacts-* 标签页（已从默认配置中移除）
+    const stale = settings.viewTabs.filter(t => (t.type as string) === 'contacts-list' || (t.type as string) === 'contacts-board' || (t.type as string) === 'contacts-gallery');
+    if (stale.length > 0) {
+      settings.viewTabs = settings.viewTabs.filter(t => (t.type as string) !== 'contacts-list' && (t.type as string) !== 'contacts-board' && (t.type as string) !== 'contacts-gallery');
+      // 若当前激活的标签被移除，重置为第一个剩余标签或仪表盘
+      if (settings.activeTabId && !settings.viewTabs.some(t => t.id === settings.activeTabId)) {
+        settings.activeTabId = settings.viewTabs[0]?.id;
+      }
       this.plugin.saveSettings();
     }
     return settings.viewTabs;
@@ -455,11 +474,12 @@ export class DashboardView extends ItemView {
     return { conditions: [], logic: 'and', groupBy: 'level' };
   }
 
-  public getCurrentViewType(): 'dashboard' | 'board' | 'gallery' | 'list' | 'goal' {
+  public getCurrentViewType(): 'dashboard' | 'board' | 'gallery' | 'list' | 'goal' | 'contact' {
     if (this.currentView === 'board') return 'board';
     if (this.currentView === 'gallery') return 'gallery';
     if (this.currentView === 'goal-detail') return 'goal';
     if (this.currentView === 'list') return 'list';
+    if (this.currentView === 'contact-detail') return 'contact';
     return 'dashboard';
   }
 
@@ -604,52 +624,72 @@ export class DashboardView extends ItemView {
     this.setTabIcons();
     this.eventHelper.loadGoalReferences();
     this.eventHelper.loadTaskReferences();
-    this.renderMarkdownTables();
+    void this.eventHelper.loadContactInteractions();
+    void this.renderMarkdownTables();
   }
 
-  private renderMarkdownTables(): void {
+  private async renderMarkdownTables(): Promise<void> {
     if (this.currentView !== 'list') return;
 
-    this.containerEl.querySelectorAll('.al-markdown-placeholder').forEach(el => {
+    const placeholders = Array.from(
+      this.containerEl.querySelectorAll<HTMLElement>('.al-markdown-placeholder')
+    );
+
+    for (const el of placeholders) {
       const markdown = decodeURIComponent(el.getAttribute('data-markdown') || '');
-      const goalIds = (el.getAttribute('data-goal-ids') || '').split(',');
+      const isContactTable = el.hasAttribute('data-contact-ids');
+      const ids = (
+        el.getAttribute(isContactTable ? 'data-contact-ids' : 'data-goal-ids') || ''
+      ).split(',');
 
       el.innerHTML = '';
-      MarkdownRenderer.renderMarkdown(markdown, el as HTMLElement, '', this.plugin);
+      await MarkdownRenderer.renderMarkdown(markdown, el, '', this.plugin);
 
-      // 为表格行添加点击事件
-      const rows = el.querySelectorAll('tbody tr');
+      // The view may have been re-rendered while MarkdownRenderer was awaiting.
+      if (!el.isConnected) continue;
+
+      const rows = el.querySelectorAll<HTMLElement>('tbody tr');
       rows.forEach((row, index) => {
-        const htmlRow = row as HTMLElement;
-        htmlRow.style.cursor = 'pointer';
-        htmlRow.style.transition = 'background 0.15s';
+        row.style.cursor = 'pointer';
+        row.style.transition = 'background 0.15s';
         row.addEventListener('mouseenter', () => {
-          htmlRow.style.background = 'var(--background-modifier-hover)';
+          row.style.background = 'var(--background-modifier-hover)';
         });
         row.addEventListener('mouseleave', () => {
-          htmlRow.style.background = '';
+          row.style.background = '';
         });
         row.addEventListener('click', () => {
-          const goalId = goalIds[index];
-          if (goalId) {
-            this.navigateTo('goal-detail', goalId, null);
+          const id = ids[index];
+          if (!id) return;
+          if (isContactTable) {
+            this.navigateTo('contact-detail', null, null, id);
+          } else {
+            this.navigateTo('goal-detail', id, null);
           }
         });
       });
-    });
+    }
   }
 
   private renderCurrentView(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], importantTasks: Task[], focusGoals: Goal[]): string {
+    const cm = this.plugin.getContactManager();
+    const contactStats = cm.getStats();
+    const recentContacts = cm.getAllContacts().slice().sort((a, b) => (b['A-updated'] || '').localeCompare(a['A-updated'] || ''));
+    return this.routeRender(allGoals, allTasks, todayTasks, overdueTasks, importantTasks, focusGoals, recentContacts, contactStats.upcomingBirthdays, contactStats.needContact);
+  }
+
+  private routeRender(allGoals: Goal[], allTasks: Task[], todayTasks: Task[], overdueTasks: Task[], importantTasks: Task[], focusGoals: Goal[], recentContacts: import('../types').Contact[], upcomingBdays: import('../types').Contact[], needContact: import('../types').Contact[]): string {
     // 对目标进行筛选
     const filteredGoals = this.filterHelper.applyFilterConditions(allGoals);
 
     switch (this.currentView) {
-      case 'goal-detail': return this.selectedGoalId ? this.detailRenderer.renderGoalDetailView(this.selectedGoalId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, focusGoals, this.dashboardTaskMode);
-      case 'task-detail': return this.selectedTaskId ? this.detailRenderer.renderTaskDetailView(this.selectedTaskId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, focusGoals, this.dashboardTaskMode);
+      case 'goal-detail': return this.selectedGoalId ? this.detailRenderer.renderGoalDetailView(this.selectedGoalId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, focusGoals, this.dashboardTaskMode, recentContacts, upcomingBdays, needContact);
+      case 'task-detail': return this.selectedTaskId ? this.detailRenderer.renderTaskDetailView(this.selectedTaskId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, focusGoals, this.dashboardTaskMode, recentContacts, upcomingBdays, needContact);
       case 'list': return this.dashboardRenderer.renderListView(filteredGoals, allTasks);
       case 'board': return this.boardRenderer.renderBoardView(filteredGoals, allTasks);
       case 'gallery': return this.galleryRenderer.renderGalleryView(filteredGoals, allTasks);
-      default: return this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, focusGoals, this.dashboardTaskMode);
+      case 'contact-detail': return this.selectedContactId ? this.contactRenderer.renderContactDetailView(this.selectedContactId) : this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, focusGoals, this.dashboardTaskMode, recentContacts, upcomingBdays, needContact);
+      default: return this.dashboardRenderer.renderDashboardView(todayTasks, overdueTasks, importantTasks, focusGoals, this.dashboardTaskMode, recentContacts, upcomingBdays, needContact);
     }
   }
 

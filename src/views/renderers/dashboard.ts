@@ -16,7 +16,7 @@ import type { DashboardTaskMode } from '../view-types';
 export class DashboardRenderer {
   constructor(private view: DashboardView) {}
 
-  renderDashboardView(todayTasks: Task[], overdueTasks: Task[], importantTasks: Task[], focusGoals: Goal[], taskMode: DashboardTaskMode = 'overdue'): string {
+  renderDashboardView(todayTasks: Task[], overdueTasks: Task[], importantTasks: Task[], focusGoals: Goal[], taskMode: DashboardTaskMode = 'overdue', recentContacts: import('../../types').Contact[] = [], upcomingBdays: import('../../types').Contact[] = [], needContact: import('../../types').Contact[] = []): string {
     const calendarHtml = this.view.calendarRenderer.renderCalendar();
     const modeConfig: Record<DashboardTaskMode, { icon: string; label: string; count: number; countClass: string; emptyText: string }> = {
       important: { icon: '⭐', label: '重点任务', count: importantTasks.length, countClass: '', emptyText: '暂无重点任务' },
@@ -51,8 +51,36 @@ export class DashboardRenderer {
           </div>
           <div class="al-panel-body">${currentTasks.length === 0 ? this.view.detailRenderer.renderEmpty(currentMode.icon, currentMode.emptyText, '') : this.renderTasks(currentTasks)}</div>
         </div>
+        <div class="al-panel">
+          <div class="al-panel-header">
+            <span>👥</span>
+            <span>通讯录</span>
+            <span class="al-panel-count">${recentContacts.length}</span>
+            <button class="clickable-icon" id="al-dashboard-add-contact-btn" title="添加联系人" aria-label="添加联系人">+</button>
+          </div>
+          <div class="al-panel-body">${this.renderDashboardContacts(recentContacts, upcomingBdays, needContact)}</div>
+        </div>
       </div>
     `;
+  }
+
+  private renderDashboardContacts(recent: import('../../types').Contact[], bdays: import('../../types').Contact[], need: import('../../types').Contact[]): string {
+    const needIds = new Set(need.map(c => c['A-id']));
+    const escapeHtml = (s: string): string => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    if (recent.length === 0) {
+      return this.view.detailRenderer.renderEmpty('👥', '还没有联系人', '点 + 添加一个，或在日记中用 #人脉/姓名 标记') +
+        '<div class="al-add-goal-link" id="al-dashboard-add-contact-link">+ 添加联系人</div>';
+    }
+    const cards = recent.map(c => {
+      const isOverdue = needIds.has(c['A-id']);
+      const title = escapeHtml(c['A-title']);
+      return '<div class="al-dashboard-contact-card" data-contact-id="' + c['A-id'] + '">' +
+        '<div class="al-dashboard-contact-card-name">' + title +
+          (isOverdue ? ' <span class="al-dashboard-contact-card-overdue" title="该联系了">●</span>' : '') +
+        '</div>' +
+      '</div>';
+    }).join('');
+    return '<div class="al-dashboard-contact-grid">' + cards + '</div>';
   }
 
   renderListView(allGoals: Goal[], allTasks: Task[]): string {

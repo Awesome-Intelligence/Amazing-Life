@@ -55,6 +55,64 @@ export interface Task {
   [key: string]: any;
 }
 
+// 联系人优先级
+export type ContactPriority = 1 | 2 | 3 | 4;
+
+// 联系人状态
+export type ContactStatus = 'active' | 'archived';
+
+// 联系人性别
+export type ContactGender = 'male' | 'female' | 'other' | '';
+
+// 关系类型（默认选项）
+export const DEFAULT_CONTACT_RELATIONS = ['家人', '朋友', '同事', '客户', '导师', '同学', '邻居', '其他'];
+
+// 联系人模型（支持动态自定义字段）
+export interface Contact {
+  'A-id': string;
+  'A-type': 'contact';
+  'A-title': string;
+  'A-nickname': string;
+  'A-relation': string;
+  'A-priority': ContactPriority;
+  'A-status': ContactStatus;
+  'A-gender': ContactGender;
+  'A-birthday': string | null;
+  'A-company': string | null;
+  'A-job-title': string | null;
+  'A-tags': string[];
+  'A-source': string | null;
+  'A-met': string | null;
+  'A-last-contact': string | null;
+  'A-remind-interval': number;
+  'A-goals': string[];
+  'A-related': string[];
+  'A-avatar': string | null;
+  'A-phone': string | null;
+  'A-email': string | null;
+  'A-wechat': string | null;
+  'A-description': string | null;
+  'A-created': string;
+  'A-updated': string;
+  [key: string]: any;
+}
+
+// 联系人互动记录
+export interface ContactInteraction {
+  date: string;
+  fileName: string;
+  filePath: string;
+  lineNumber: number;
+  lineContent: string;
+}
+
+// 联系人字段
+export type ContactField =
+  | 'name' | 'nickname' | 'relation' | 'priority' | 'status'
+  | 'gender' | 'birthday' | 'company' | 'jobTitle' | 'tags'
+  | 'met' | 'lastContact' | 'remindInterval' | 'goals'
+  | 'phone' | 'email' | 'wechat' | 'description';
+
 // 目标树节点
 export interface GoalTree {
   goal: Goal;
@@ -71,6 +129,7 @@ export interface ParsedLine {
   taskStatus?: 'pending' | 'in-progress' | 'completed';
   goalTags: string[];
   taskTags: string[];
+  contactTags: string[];
   isNoteworthy: boolean;
   categoryTags: string[];
 }
@@ -101,6 +160,7 @@ export interface ViewFieldsConfig {
   board: GoalField[];     // 看板目标显示的字段
   list: GoalField[];      // 列表目标显示的字段
   gallery: GoalField[];   // 画廊目标显示的字段
+  contact?: GoalField[];  // 联系人视图显示的字段（可选）
 }
 
 // 筛选操作符类型
@@ -199,6 +259,32 @@ export const TASK_FILTER_FIELDS: FilterFieldDef[] = [
   { field: 'A-created', label: '创建时间', type: 'date' },
   { field: 'A-completed', label: '完成时间', type: 'date' },
   { field: 'A-tags', label: '标签', type: 'array' }
+];
+
+// 联系人筛选字段定义
+export const CONTACT_FILTER_FIELDS: FilterFieldDef[] = [
+  { field: 'A-title', label: '姓名', type: 'string' },
+  { field: 'A-relation', label: '关系', type: 'select', options: DEFAULT_CONTACT_RELATIONS.map(r => ({ value: r, label: r })) },
+  { field: 'A-priority', label: '优先级', type: 'select', options: [
+    { value: 1, label: '核心' },
+    { value: 2, label: '重要' },
+    { value: 3, label: '一般' },
+    { value: 4, label: '偶尔' }
+  ]},
+  { field: 'A-status', label: '状态', type: 'select', options: [
+    { value: 'active', label: '活跃' },
+    { value: 'archived', label: '已归档' }
+  ]},
+  { field: 'A-gender', label: '性别', type: 'select', options: [
+    { value: 'male', label: '男' },
+    { value: 'female', label: '女' },
+    { value: 'other', label: '其他' }
+  ]},
+  { field: 'A-birthday', label: '生日', type: 'date' },
+  { field: 'A-last-contact', label: '最近联系', type: 'date' },
+  { field: 'A-met', label: '认识日期', type: 'date' },
+  { field: 'A-company', label: '公司', type: 'string' },
+  { field: 'A-tags', label: '话题标签', type: 'array' }
 ];
 
 // 视图字段默认值
@@ -386,6 +472,11 @@ export interface PluginSettings {
   viewTabs: ViewTab[];         // 视图标签页配置
   activeTabId: string | null;  // 当前活动的标签页ID
   customGoalFields: CustomFieldConfig[];  // 自定义目标字段配置
+  contactPath: string;              // 联系人目录
+  contactTagPrefix: string;        // 联系人标签前缀（默认：人脉）
+  contactDefaultInterval: number;  // 默认联系间隔（天）
+  contactRelations: string[];      // 自定义关系类型
+  customContactFields: CustomFieldConfig[]; // 自定义联系人字段
 }
 
 // 层级名称映射
@@ -402,6 +493,40 @@ export const STATUS_NAMES: Record<TaskStatus, string> = {
   'in-progress': '进行中',
   'completed': '已完成',
   'cancelled': '已取消'
+};
+
+// 联系人字段标签
+export const CONTACT_FIELD_LABELS: Record<ContactField, string> = {
+  name: '姓名',
+  nickname: '昵称',
+  relation: '关系',
+  priority: '优先级',
+  status: '状态',
+  gender: '性别',
+  birthday: '生日',
+  company: '公司',
+  jobTitle: '职位',
+  tags: '话题',
+  met: '认识日期',
+  lastContact: '最近联系',
+  remindInterval: '联系间隔',
+  goals: '关联目标',
+  phone: '电话',
+  email: '邮箱',
+  wechat: '微信',
+  description: '备注'
+};
+
+export const CONTACT_PRIORITY_LABELS: Record<ContactPriority, string> = {
+  1: '核心',
+  2: '重要',
+  3: '一般',
+  4: '偶尔'
+};
+
+export const CONTACT_STATUS_LABELS: Record<ContactStatus, string> = {
+  'active': '活跃',
+  'archived': '已归档'
 };
 
 // 优先级名称映射
@@ -429,7 +554,12 @@ export const DEFAULT_SETTINGS: PluginSettings = {
   viewFields: DEFAULT_VIEW_FIELDS,
   viewTabs: [],  // 默认空，用户可以添加
   activeTabId: null,
-  customGoalFields: []  // 自定义目标字段配置，默认空
+  customGoalFields: [],            // 自定义目标字段配置，默认空
+  contactPath: 'Amazing Life/contacts',
+  contactTagPrefix: '人脉',
+  contactDefaultInterval: 90,
+  contactRelations: DEFAULT_CONTACT_RELATIONS,
+  customContactFields: []
 };
 
 // 默认视图标签页
