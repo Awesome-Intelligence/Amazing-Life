@@ -747,7 +747,9 @@ export class EventManager {
         lineSpan.setText(String(ref.lineNumber));
         
         const contentDiv = itemDiv.createDiv('al-reference-content');
-        contentDiv.innerHTML = lineContent;
+        const tmp = document.createElement('div');
+        tmp.innerHTML = lineContent;
+        while (tmp.firstChild) contentDiv.appendChild(tmp.firstChild);
 
         itemDiv.addEventListener('click', () => {
           const file = view.plugin.app.vault.getAbstractFileByPath(ref.filePath);
@@ -813,7 +815,9 @@ export class EventManager {
         lineSpan.setText(String(ref.lineNumber));
         
         const contentDiv = itemDiv.createDiv('al-reference-content');
-        contentDiv.innerHTML = lineContent;
+        const tmp = document.createElement('div');
+        tmp.innerHTML = lineContent;
+        while (tmp.firstChild) contentDiv.appendChild(tmp.firstChild);
 
         itemDiv.addEventListener('click', () => {
           const file = view.plugin.app.vault.getAbstractFileByPath(ref.filePath);
@@ -842,7 +846,9 @@ export class EventManager {
       const items = await view.plugin.getContactManager().getContactInteractions(view.selectedContactId);
       container.empty();
       const renderedContent = container.createDiv();
-      renderedContent.innerHTML = view.contactRenderer.renderContactInteractions(items);
+      const tmp = document.createElement('div');
+      tmp.innerHTML = view.contactRenderer.renderContactInteractions(items);
+      while (tmp.firstChild) renderedContent.appendChild(tmp.firstChild);
       renderedContent.querySelectorAll<HTMLElement>('.al-detail-reference-item').forEach(item => {
         item.addEventListener('click', () => {
           const filePath = item.getAttribute('data-file-path');

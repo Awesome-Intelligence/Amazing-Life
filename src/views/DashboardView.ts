@@ -636,12 +636,16 @@ export class DashboardView extends ItemView {
     // Filter bar (only for list, board, gallery views)
     if (['list', 'board', 'gallery'].includes(this.currentView)) {
       const filterBarContainer = pageDiv.createDiv();
-      filterBarContainer.innerHTML = this.filterHelper.renderFilterBar(currentFilters);
+      const tmp1 = document.createElement('div');
+      tmp1.innerHTML = this.filterHelper.renderFilterBar(currentFilters);
+      while (tmp1.firstChild) filterBarContainer.appendChild(tmp1.firstChild);
     }
     
     // Body
     const bodyDiv = pageDiv.createDiv('al-body');
-    bodyDiv.innerHTML = this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, importantTasks, focusGoals);
+    const tmp2 = document.createElement('div');
+    tmp2.innerHTML = this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, importantTasks, focusGoals);
+    while (tmp2.firstChild) bodyDiv.appendChild(tmp2.firstChild);
 
      this.eventHelper.bindEvents();
      injectDashboardStyles();
@@ -674,14 +678,7 @@ export class DashboardView extends ItemView {
 
       const rows = el.querySelectorAll<HTMLElement>('tbody tr');
       rows.forEach((row, index) => {
-        row.style.cursor = 'pointer';
-        row.style.transition = 'background 0.15s';
-        row.addEventListener('mouseenter', () => {
-          row.style.background = 'var(--background-modifier-hover)';
-        });
-        row.addEventListener('mouseleave', () => {
-          row.style.background = '';
-        });
+        row.addClass('al-table-hover');
         row.addEventListener('click', () => {
           const id = ids[index];
           if (!id) return;

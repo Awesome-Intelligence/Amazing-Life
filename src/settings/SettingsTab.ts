@@ -27,7 +27,7 @@ export class SettingsTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     
-    new Setting(containerEl).setName('Amazing Life 设置').setHeading();
+    new Setting(containerEl).setName('设置').setHeading();
     
     // 目录设置
     new Setting(containerEl).setName('目录设置').setHeading();

@@ -111,10 +111,7 @@ export default class AmazingLife extends Plugin {
     await this.contactManager.loadContacts();
   }
   
-  onunload(): void {
-    // Close dashboard view if open
-    this.app.workspace.detachLeavesOfType(DASHBOARD_VIEW_TYPE);
-  }
+  onunload(): void {}
   
   private initializeComponents(): void {
     this.storage = new FileStorage(this.app, this.lifeSettings);
