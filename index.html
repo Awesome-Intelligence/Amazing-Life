@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Amazing Life - 系统性生活管理</title>
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%23667eea'/%3E%3Cstop offset='100%25' stop-color='%23764ba2'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='64' height='64' rx='14' fill='url(%23g)'/%3E%3Ctext x='50%25' y='54%25' text-anchor='middle' dominant-baseline='middle' font-size='36' font-weight='700' fill='white' font-family='Inter, sans-serif'%3E✦%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/png" href="LOGO.png">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap');
 
@@ -105,12 +105,14 @@
 
   .logo-icon {
     width: 36px; height: 36px;
-    background: linear-gradient(135deg, var(--accent-start), var(--accent-end));
     border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
+    overflow: hidden;
+  }
+
+  .logo-icon img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
   }
 
   .nav-links {
@@ -598,7 +600,7 @@
 <nav>
   <div class="container nav-content">
     <div class="logo">
-      <div class="logo-icon">✦</div>
+      <div class="logo-icon"><img src="LOGO.png" alt="Logo"></div>
       Amazing Life
     </div>
     <ul class="nav-links">
@@ -813,7 +815,7 @@
 <footer>
   <div class="container footer-content">
     <div class="footer-logo">
-      <div class="logo-icon" style="width: 32px; height: 32px; font-size: 16px;">✦</div>
+      <div class="logo-icon" style="width: 32px; height: 32px;"><img src="LOGO.png" alt="Logo"></div>
       Amazing Life
     </div>
     <ul class="footer-links">
