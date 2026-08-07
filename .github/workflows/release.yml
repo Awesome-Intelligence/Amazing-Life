@@ -1,0 +1,40 @@
+name: Release obsidian plugin
+
+on:
+  push:
+    tags:
+      - "*"
+
+env:
+  PLUGIN_NAME: amazing-life # Change this to the name of your plugin
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Build
+        id: build
+        run: |
+          npm install
+          npm run build --if-present
+      - name: Create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+
+          mkdir "$PLUGIN_NAME"
+          cp main.js manifest.json "$PLUGIN_NAME"/
+          cp styles.css versions.json "$PLUGIN_NAME"/ 2>/dev/null || true
+
+          zip -r "$PLUGIN_NAME".zip "$PLUGIN_NAME"
+
+          gh release create "$tag" \
+            --title="$tag" \
+            --generate-notes \
+            main.js manifest.json "$PLUGIN_NAME".zip
