@@ -1,7 +1,7 @@
 {
   "id": "amazing-life",
   "name": "Amazing Life",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "minAppVersion": "0.15.0",
   "description": "Life management plugin with tasks, habits, goals, notes and data visualization.",
   "author": "Amazing Life Team",
