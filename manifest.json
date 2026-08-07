@@ -3,10 +3,8 @@
   "name": "Amazing Life",
   "version": "1.0.0",
   "minAppVersion": "0.15.0",
-  "description": "Life management plugin for Obsidian",
+  "description": "Life management plugin with tasks, habits, goals, notes and data visualization.",
   "author": "Amazing Life Team",
-  "authorUrl": "http://amazinglife.top/",
-  "homepage": "http://amazinglife.top/",
-  "license": "MIT",
+  "authorUrl": "https://amazinglife.top/",
   "isDesktopOnly": false
 }
