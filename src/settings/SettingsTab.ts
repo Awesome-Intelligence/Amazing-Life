@@ -27,10 +27,10 @@ export class SettingsTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     
-    containerEl.createEl('h2', { text: 'Amazing Life 设置' });
+    new Setting(containerEl).setName('Amazing Life 设置').setHeading();
     
     // 目录设置
-    containerEl.createEl('h3', { text: '目录设置' });
+    new Setting(containerEl).setName('目录设置').setHeading();
     
     new Setting(containerEl)
       .setName('插件数据目录')
@@ -107,7 +107,7 @@ export class SettingsTab extends PluginSettingTab {
       });
     
     // 标签设置
-    containerEl.createEl('h3', { text: '标签设置' });
+    new Setting(containerEl).setName('标签设置').setHeading();
     
     new Setting(containerEl)
       .setName('目标标签前缀')
@@ -144,7 +144,7 @@ export class SettingsTab extends PluginSettingTab {
     
 
     // 联系人设置
-    containerEl.createEl('h3', { text: '联系人设置' });
+    new Setting(containerEl).setName('联系人设置').setHeading();
 
     new Setting(containerEl)
       .setName('联系人目录')
@@ -193,7 +193,7 @@ export class SettingsTab extends PluginSettingTab {
       });
 
     // 其他设置
-    containerEl.createEl('h3', { text: '其他设置' });
+    new Setting(containerEl).setName('其他设置').setHeading();
     
     new Setting(containerEl)
       .setName('自动更新进度')

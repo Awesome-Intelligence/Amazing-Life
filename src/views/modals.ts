@@ -130,10 +130,7 @@ export class CoverImagePickerModal extends Modal {
       const inputEl = document.createElement('input');
       inputEl.type = 'file';
       inputEl.accept = 'image/*';
-      inputEl.style.position = 'absolute';
-      inputEl.style.left = '-9999px';
-      inputEl.style.top = '0';
-      inputEl.style.opacity = '0';
+      inputEl.addClass('al-file-input-overlay');
       document.body.appendChild(inputEl);
 
       const cleanup = () => {

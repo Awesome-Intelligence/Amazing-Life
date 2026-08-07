@@ -583,41 +583,65 @@ export class DashboardView extends ItemView {
     const tabs = this.getViewTabs();
     const activeTab = this.getActiveTab();
     const isDashboard = this.currentView === 'dashboard';
-    const viewTabsHtml = tabs.map(tab => {
-      // 在仪表盘首页时，所有视图标签都不显示 active 状态
+    const icons: Record<ViewTabType, string> = {
+      'list': 'list',
+      'board': 'columns',
+      'gallery': 'gallery-horizontal'
+    };
+
+    // 构建页面结构
+    const pageDiv = content.createDiv('al-page');
+    
+    // Header
+    const headerDiv = pageDiv.createDiv('al-header');
+    const titleDiv = headerDiv.createDiv('al-title');
+    titleDiv.setText('Amazing Life');
+    
+    // View tabs
+    const viewTabsDiv = pageDiv.createDiv('al-view-tabs');
+    
+    // Dashboard tab
+    const dashboardTab = viewTabsDiv.createEl('button', {
+      cls: `al-view-tab ${this.currentView === 'dashboard' ? 'active' : ''}`,
+      attr: { 'data-view': 'dashboard' }
+    });
+    const dashIconSpan = dashboardTab.createSpan('al-tab-icon');
+    dashIconSpan.setAttribute('data-icon', 'layout-grid');
+    const dashTextSpan = dashboardTab.createSpan();
+    dashTextSpan.setText('仪表盘');
+    
+    // View tabs from settings
+    tabs.forEach(tab => {
       const isActive = !isDashboard && activeTab?.id === tab.id;
-      const icons: Record<ViewTabType, string> = {
-        'list': 'list',
-        'board': 'columns',
-        'gallery': 'gallery-horizontal'
-      };
-      return `
-        <button class="al-view-tab ${isActive ? 'active' : ''}" data-tab-id="${tab.id}">
-          <span class="al-tab-icon" data-icon="${icons[tab.type]}"></span>
-          <span class="al-tab-name" data-tab-id="${tab.id}" title="右键菜单 / 长按菜单">${tab.name}</span>
-        </button>
-      `;
-    }).join('');
-
-    content.innerHTML = `
-      <div class="al-page">
-        <div class="al-header">
-          <div class="al-title">Amazing Life</div>
-        </div>
-
-        <div class="al-view-tabs">
-          <button class="al-view-tab ${this.currentView === 'dashboard' ? 'active' : ''}" data-view="dashboard"><span class="al-tab-icon" data-icon="layout-grid"></span><span>仪表盘</span></button>
-          ${viewTabsHtml}
-          <button class="al-view-tab al-view-tab-add" id="al-add-view-tab" title="添加视图"><span class="al-tab-icon" data-icon="plus"></span></button>
-        </div>
-
-        ${['list', 'board', 'gallery'].includes(this.currentView) ? this.filterHelper.renderFilterBar(currentFilters) : ''}
-
-        <div class="al-body">
-          ${this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, importantTasks, focusGoals)}
-        </div>
-      </div>
-    `;
+      const tabBtn = viewTabsDiv.createEl('button', {
+        cls: `al-view-tab ${isActive ? 'active' : ''}`,
+        attr: { 'data-tab-id': tab.id }
+      });
+      const tabIconSpan = tabBtn.createSpan('al-tab-icon');
+      tabIconSpan.setAttribute('data-icon', icons[tab.type]);
+      const tabNameSpan = tabBtn.createSpan('al-tab-name');
+      tabNameSpan.setText(tab.name);
+      tabNameSpan.setAttribute('data-tab-id', tab.id);
+      tabNameSpan.setAttribute('title', '右键菜单 / 长按菜单');
+    });
+    
+    // Add view tab button
+    const addTabBtn = viewTabsDiv.createEl('button', {
+      cls: 'al-view-tab al-view-tab-add',
+      attr: { id: 'al-add-view-tab', title: '添加视图' }
+    });
+    const addIconSpan = addTabBtn.createSpan('al-tab-icon');
+    addIconSpan.setAttribute('data-icon', 'plus');
+    
+    // Filter bar (only for list, board, gallery views)
+    if (['list', 'board', 'gallery'].includes(this.currentView)) {
+      const filterBarContainer = pageDiv.createDiv();
+      filterBarContainer.innerHTML = this.filterHelper.renderFilterBar(currentFilters);
+    }
+    
+    // Body
+    const bodyDiv = pageDiv.createDiv('al-body');
+    bodyDiv.innerHTML = this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, importantTasks, focusGoals);
 
      this.eventHelper.bindEvents();
      injectDashboardStyles();

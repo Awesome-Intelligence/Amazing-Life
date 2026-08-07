@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Dashboard View - Event Manager
  *
  * 从 DashboardView.ts 抽出的事件绑定与引用加载逻辑：
@@ -32,7 +32,7 @@ export class EventManager {
 
     // 联系人卡片点击：仪表盘面板卡片统一跳转详情页
     content.querySelectorAll<HTMLElement>('[data-contact-id]').forEach(node => {
-      node.style.cursor = 'pointer';
+      node.addClass('al-interactive');
       node.addEventListener('click', () => {
         const id = node.getAttribute('data-contact-id');
         if (id) view.navigateTo('contact-detail', null, null, id);
@@ -291,11 +291,11 @@ export class EventManager {
       const innerContent = document.querySelector('#al-subgoals-content') as HTMLElement;
       const toggleIcon = document.querySelector('#al-subgoals-toggle-icon') as HTMLElement;
       if (innerContent) {
-        if (innerContent.style.display === 'none') {
-          innerContent.style.display = 'block';
+        if (innerContent.classList.contains('al-hidden')) {
+          innerContent.classList.remove('al-hidden');
           toggleIcon.classList.add('expanded');
         } else {
-          innerContent.style.display = 'none';
+          innerContent.classList.add('al-hidden');
           toggleIcon.classList.remove('expanded');
         }
       }
@@ -321,11 +321,11 @@ export class EventManager {
       const innerContent = document.querySelector('#al-tasks-content') as HTMLElement;
       const toggleIcon = document.querySelector('#al-tasks-toggle-icon') as HTMLElement;
       if (innerContent) {
-        if (innerContent.style.display === 'none') {
-          innerContent.style.display = 'block';
+        if (innerContent.classList.contains('al-hidden')) {
+          innerContent.classList.remove('al-hidden');
           toggleIcon.classList.add('expanded');
         } else {
-          innerContent.style.display = 'none';
+          innerContent.classList.add('al-hidden');
           toggleIcon.classList.remove('expanded');
         }
       }
@@ -721,44 +721,46 @@ export class EventManager {
       countEl.textContent = references.length.toString();
 
       if (references.length === 0) {
-        contentEl.innerHTML = `<div class="al-detail-references-empty"><span class="al-empty-text">暂无引用记录</span></div>`;
+        contentEl.empty();
+        const emptyDiv = contentEl.createDiv('al-detail-references-empty');
+        const emptySpan = emptyDiv.createSpan('al-empty-text');
+        emptySpan.setText('暂无引用记录');
         return;
       }
 
-      const referencesHtml = references.map(ref => {
+      contentEl.empty();
+      references.forEach(ref => {
         let lineContent = ref.lineContent;
         if (goalTitle) {
           lineContent = lineContent.replace(new RegExp(goalTitle, 'g'), `<span class="al-reference-highlight">${goalTitle}</span>`);
         }
 
-        return `
-          <div class="al-detail-reference-item" data-file-path="${ref.filePath}">
-            <div class="al-reference-file-info">
-              <span class="al-reference-file-icon">📄</span>
-              <span class="al-reference-file-name">${ref.fileName}</span>
-              <span class="al-reference-line-number">${ref.lineNumber}</span>
-            </div>
-            <div class="al-reference-content">${lineContent}</div>
-          </div>
-        `;
-      }).join('');
+        const itemDiv = contentEl.createDiv('al-detail-reference-item');
+        itemDiv.setAttribute('data-file-path', ref.filePath);
+        
+        const fileInfoDiv = itemDiv.createDiv('al-reference-file-info');
+        const iconSpan = fileInfoDiv.createSpan('al-reference-file-icon');
+        iconSpan.setText('📄');
+        const nameSpan = fileInfoDiv.createSpan('al-reference-file-name');
+        nameSpan.setText(ref.fileName);
+        const lineSpan = fileInfoDiv.createSpan('al-reference-line-number');
+        lineSpan.setText(String(ref.lineNumber));
+        
+        const contentDiv = itemDiv.createDiv('al-reference-content');
+        contentDiv.innerHTML = lineContent;
 
-      contentEl.innerHTML = referencesHtml;
-
-      contentEl.querySelectorAll('.al-detail-reference-item').forEach(item => {
-        item.addEventListener('click', () => {
-          const filePath = item.getAttribute('data-file-path');
-          if (filePath) {
-            const file = view.plugin.app.vault.getAbstractFileByPath(filePath);
-            if (file) {
-              view.plugin.app.workspace.openLinkText(file.path, '');
-            }
+        itemDiv.addEventListener('click', () => {
+          const file = view.plugin.app.vault.getAbstractFileByPath(ref.filePath);
+          if (file) {
+            view.plugin.app.workspace.openLinkText(file.path, '');
           }
         });
       });
     } catch (error) {
       console.error('加载引用记录失败:', error);
-      contentEl.innerHTML = `<div class="al-detail-references-error">加载引用记录失败</div>`;
+      contentEl.empty();
+      const errorDiv = contentEl.createDiv('al-detail-references-error');
+      errorDiv.setText('加载引用记录失败');
     }
   }
 
@@ -785,45 +787,47 @@ export class EventManager {
       loadingEl.remove();
 
       if (references.length === 0) {
-        contentEl.innerHTML = `<div class="al-detail-references-empty"><span class="al-empty-text">暂无引用记录</span></div>`;
+        contentEl.empty();
+        const emptyDiv = contentEl.createDiv('al-detail-references-empty');
+        const emptySpan = emptyDiv.createSpan('al-empty-text');
+        emptySpan.setText('暂无引用记录');
         return;
       }
 
-      const referencesHtml = references.map(ref => {
+      contentEl.empty();
+      references.forEach(ref => {
         let lineContent = ref.lineContent;
         if (taskTitle) {
           lineContent = lineContent.replace(new RegExp(taskTitle, 'g'), `<span class="al-reference-highlight">${taskTitle}</span>`);
         }
 
-        return `
-          <div class="al-detail-reference-item" data-file-path="${ref.filePath}">
-            <div class="al-reference-file-info">
-              <span class="al-reference-file-icon">📄</span>
-              <span class="al-reference-file-name">${ref.fileName}</span>
-              <span class="al-reference-line-number">${ref.lineNumber}</span>
-            </div>
-            <div class="al-reference-content">${lineContent}</div>
-          </div>
-        `;
-      }).join('');
+        const itemDiv = contentEl.createDiv('al-detail-reference-item');
+        itemDiv.setAttribute('data-file-path', ref.filePath);
+        
+        const fileInfoDiv = itemDiv.createDiv('al-reference-file-info');
+        const iconSpan = fileInfoDiv.createSpan('al-reference-file-icon');
+        iconSpan.setText('📄');
+        const nameSpan = fileInfoDiv.createSpan('al-reference-file-name');
+        nameSpan.setText(ref.fileName);
+        const lineSpan = fileInfoDiv.createSpan('al-reference-line-number');
+        lineSpan.setText(String(ref.lineNumber));
+        
+        const contentDiv = itemDiv.createDiv('al-reference-content');
+        contentDiv.innerHTML = lineContent;
 
-      contentEl.innerHTML = referencesHtml;
-
-      contentEl.querySelectorAll('.al-detail-reference-item').forEach(item => {
-        item.addEventListener('click', () => {
-          const filePath = item.getAttribute('data-file-path');
-          if (filePath) {
-            const file = view.plugin.app.vault.getAbstractFileByPath(filePath);
-            if (file) {
-              view.plugin.app.workspace.openLinkText(file.path, '');
-            }
+        itemDiv.addEventListener('click', () => {
+          const file = view.plugin.app.vault.getAbstractFileByPath(ref.filePath);
+          if (file) {
+            view.plugin.app.workspace.openLinkText(file.path, '');
           }
         });
       });
     } catch (error) {
       console.error('加载引用记录失败:', error);
       loadingEl.remove();
-      contentEl.innerHTML = `<div class="al-detail-references-error">加载引用记录失败</div>`;
+      contentEl.empty();
+      const errorDiv = contentEl.createDiv('al-detail-references-error');
+      errorDiv.setText('加载引用记录失败');
     }
   }
 
@@ -836,8 +840,10 @@ export class EventManager {
     if (!container) return;
     try {
       const items = await view.plugin.getContactManager().getContactInteractions(view.selectedContactId);
-      container.innerHTML = view.contactRenderer.renderContactInteractions(items);
-      container.querySelectorAll<HTMLElement>('.al-detail-reference-item').forEach(item => {
+      container.empty();
+      const renderedContent = container.createDiv();
+      renderedContent.innerHTML = view.contactRenderer.renderContactInteractions(items);
+      renderedContent.querySelectorAll<HTMLElement>('.al-detail-reference-item').forEach(item => {
         item.addEventListener('click', () => {
           const filePath = item.getAttribute('data-file-path');
           if (filePath) {
@@ -849,7 +855,9 @@ export class EventManager {
         });
       });
     } catch (err) {
-      container.innerHTML = '<div class="al-empty-text">加载失败: ' + (err as Error).message + '</div>';
+      container.empty();
+      const errorDiv = container.createDiv('al-empty-text');
+      errorDiv.setText('加载失败: ' + (err as Error).message);
     }
   }
 }

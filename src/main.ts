@@ -102,9 +102,6 @@ export default class AmazingLife extends Plugin {
       callback: () => this.openTodayNote()
     });
     
-    // Add styles
-    this.addStyles();
-    
     // Initialize directories
     await this.storage.ensureDirectories();
     
@@ -115,7 +112,6 @@ export default class AmazingLife extends Plugin {
   }
   
   onunload(): void {
-    console.log('Amazing Life unloaded');
     // Close dashboard view if open
     this.app.workspace.detachLeavesOfType(DASHBOARD_VIEW_TYPE);
   }
@@ -127,57 +123,6 @@ export default class AmazingLife extends Plugin {
     this.taskManager = new TaskManager(this.storage, this.lifeSettings);
     this.noteManager = new NoteManager(this.storage, this.lifeSettings);
     this.contactManager = new ContactManager(this.storage, this.lifeSettings);
-  }
-  
-  private addStyles(): void {
-    const style = document.createElement('style');
-    style.id = 'amazing-life-base-styles';
-    style.textContent = `
-      .amazing-life-goal-card {
-        padding: 12px;
-        margin: 8px 0;
-        background: var(--background-secondary);
-        border-radius: 8px;
-        border: 1px solid var(--border-color);
-      }
-      
-      .amazing-life-progress-bar {
-        height: 8px;
-        background: var(--background-modifier-border);
-        border-radius: 4px;
-        overflow: hidden;
-        margin: 8px 0;
-      }
-      
-      .amazing-life-progress-fill {
-        height: 100%;
-        background: linear-gradient(90deg, #667eea, #764ba2);
-        transition: width 0.3s ease;
-      }
-      
-      .amazing-life-task-item {
-        display: flex;
-        align-items: center;
-        padding: 8px;
-        margin: 4px 0;
-        background: var(--background-secondary);
-        border-radius: 4px;
-      }
-      
-      .amazing-life-priority-high { color: #ef4444; }
-      .amazing-life-priority-medium { color: #f59e0b; }
-      .amazing-life-priority-low { color: #22c55e; }
-      
-      .amazing-life-level-badge {
-        display: inline-block;
-        padding: 2px 8px;
-        border-radius: 4px;
-        font-size: 12px;
-        background: var(--interactive-accent);
-        color: white;
-      }
-    `;
-    document.head.appendChild(style);
   }
   
   async showDashboard(): Promise<void> {
@@ -227,7 +172,7 @@ export default class AmazingLife extends Plugin {
     
     const file = this.app.vault.getAbstractFileByPath(notePath);
     if (file) {
-      const leaf = this.app.workspace.getLeaf(true);
+      const leaf = this.app.workspace.getLeaf('split', 'vertical');
       await leaf.openFile(file as any);
     } else {
       new Notice('今日日记不存在');

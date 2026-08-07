@@ -350,8 +350,7 @@ export class ViewModals {
 
     if (fieldType === 'select' && options.length > 0) {
       inputEl = document.createElement('select');
-      inputEl.className = 'al-field-edit-select';
-      inputEl.style.cssText = 'padding:6px 10px;border:1px solid var(--interactive-accent);border-radius:6px;background:var(--background-primary);color:var(--text-primary);font-size:14px;';
+      inputEl.className = 'al-field-edit-select al-custom-field-select';
       options.forEach(opt => {
         const option = document.createElement('option');
         option.value = opt;
@@ -710,7 +709,7 @@ class CreateGoalModal extends Modal {
 
     const form = contentEl.createEl('form');
     form.id = 'al-goal-form';
-    form.style.padding = '20px';
+    form.addClass('al-form');
 
     // 目标名称
     const titleItem = form.createDiv('al-form-item');
@@ -834,7 +833,7 @@ class TaskDetailModal extends Modal {
 
     const form = contentEl.createEl('form');
     form.id = 'al-task-form';
-    form.style.padding = '20px';
+    form.addClass('al-form');
 
     // 任务名称
     const titleItem = form.createDiv('al-form-item');
@@ -974,7 +973,7 @@ class CreateTaskModal extends Modal {
 
     const form = contentEl.createEl('form');
     form.id = 'al-task-form';
-    form.style.padding = '20px';
+    form.addClass('al-form');
 
     // 任务名称
     const titleItem = form.createDiv('al-form-item');
@@ -1071,8 +1070,8 @@ class AddCustomFieldModal extends Modal {
 
     contentEl.createEl('h2', { text: '添加自定义字段', cls: 'al-modal-header' });
 
-    const body = contentEl.createDiv();
-    body.style.padding = '20px';
+    const body = contentEl.createDiv('al-form');
+    // body already has al-form class with padding
 
     // 字段名称
     const keyItem = body.createDiv('al-form-item');
@@ -1097,8 +1096,7 @@ class AddCustomFieldModal extends Modal {
     });
 
     // 选项（单选类型时显示）
-    const optionsRow = body.createDiv('al-form-item');
-    optionsRow.style.display = 'none';
+    const optionsRow = body.createDiv('al-form-item al-hidden');
     optionsRow.createEl('label', { text: '选项（逗号分隔）' });
     const optionsInput = optionsRow.createEl('input');
     optionsInput.type = 'text';
@@ -1112,7 +1110,11 @@ class AddCustomFieldModal extends Modal {
     valueInput.placeholder = '输入字段值';
 
     typeSelect.addEventListener('change', () => {
-      optionsRow.style.display = typeSelect.value === 'select' ? 'block' : 'none';
+      if (typeSelect.value === 'select') {
+        optionsRow.classList.remove('al-hidden');
+      } else {
+        optionsRow.classList.add('al-hidden');
+      }
     });
 
     const footer = contentEl.createDiv('al-modal-footer');
