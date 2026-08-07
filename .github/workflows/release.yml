@@ -5,6 +5,9 @@ on:
     tags:
       - "*"
 
+permissions:
+  contents: write
+
 env:
   PLUGIN_NAME: amazing-life # Change this to the name of your plugin
 
