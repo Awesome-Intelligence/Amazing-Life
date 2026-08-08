@@ -136,10 +136,6 @@ export default class AmazingLife extends Plugin {
         active: true
       });
     }
-    
-    // Activate the leaf
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-    workspace.revealLeaf(dashboardLeaf);
   }
   
   async showCreateGoalModal(): Promise<void> {
