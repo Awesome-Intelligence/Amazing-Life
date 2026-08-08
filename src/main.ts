@@ -138,6 +138,7 @@ export default class AmazingLife extends Plugin {
     }
     
     // Activate the leaf
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
     workspace.revealLeaf(dashboardLeaf);
   }
   

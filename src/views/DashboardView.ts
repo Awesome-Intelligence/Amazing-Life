@@ -33,6 +33,7 @@ import { ContactRenderer } from './renderers/contacts';
 import { CalendarRenderer } from './renderers/calendar';
 import { ViewModals } from './view-modals';
 import { EventManager } from './events';
+import { safeSetHTML } from '../utils/safeHTML';
 import { injectDashboardStyles, removeDashboardStyles } from './styles';
 
 // 为兼容 main.ts 的 `import { DashboardView, DASHBOARD_VIEW_TYPE } from './views/DashboardView'`，
@@ -636,16 +637,12 @@ export class DashboardView extends ItemView {
     // Filter bar (only for list, board, gallery views)
     if (['list', 'board', 'gallery'].includes(this.currentView)) {
       const filterBarContainer = pageDiv.createDiv();
-      const tmp1 = document.createElement('div');
-      tmp1.innerHTML = this.filterHelper.renderFilterBar(currentFilters);
-      while (tmp1.firstChild) filterBarContainer.appendChild(tmp1.firstChild);
+      safeSetHTML(filterBarContainer, this.filterHelper.renderFilterBar(currentFilters));
     }
     
     // Body
     const bodyDiv = pageDiv.createDiv('al-body');
-    const tmp2 = document.createElement('div');
-    tmp2.innerHTML = this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, importantTasks, focusGoals);
-    while (tmp2.firstChild) bodyDiv.appendChild(tmp2.firstChild);
+    safeSetHTML(bodyDiv, this.renderCurrentView(allGoals, allTasks, todayTasks, overdueTasks, importantTasks, focusGoals));
 
      this.eventHelper.bindEvents();
      injectDashboardStyles();
