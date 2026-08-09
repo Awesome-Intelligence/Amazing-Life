@@ -667,7 +667,7 @@ export class DashboardView extends ItemView {
         el.getAttribute(isContactTable ? 'data-contact-ids' : 'data-goal-ids') || ''
       ).split(',');
 
-      el.innerHTML = '';
+      el.empty();
       await MarkdownRenderer.renderMarkdown(markdown, el, '', this.plugin);
 
       // The view may have been re-rendered while MarkdownRenderer was awaiting.

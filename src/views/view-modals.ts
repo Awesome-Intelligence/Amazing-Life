@@ -155,9 +155,30 @@ export class ViewModals {
       inputEl = document.createElement('select');
       inputEl.className = isProgressField ? 'al-field-edit-select al-progress-edit-input' : 'al-field-edit-select';
       if (field === 'level') {
-        inputEl.innerHTML = '<option value="1">人生</option><option value="2">阶段</option><option value="3">年度</option><option value="4">短期</option>';
+        const levelOptions = [
+          { value: '1', label: '人生' },
+          { value: '2', label: '阶段' },
+          { value: '3', label: '年度' },
+          { value: '4', label: '短期' }
+        ];
+        levelOptions.forEach(opt => {
+          const optEl = document.createElement('option');
+          optEl.value = opt.value;
+          optEl.textContent = opt.label;
+          inputEl.appendChild(optEl);
+        });
       } else if (field === 'status') {
-        inputEl.innerHTML = '<option value="active">进行中</option><option value="completed">已完成</option><option value="abandoned">已放弃</option>';
+        const statusOptions = [
+          { value: 'active', label: '进行中' },
+          { value: 'completed', label: '已完成' },
+          { value: 'abandoned', label: '已放弃' }
+        ];
+        statusOptions.forEach(opt => {
+          const optEl = document.createElement('option');
+          optEl.value = opt.value;
+          optEl.textContent = opt.label;
+          inputEl.appendChild(optEl);
+        });
       }
       inputEl.value = currentValue;
     } else if (fieldType === 'date') {
