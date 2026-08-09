@@ -30,6 +30,7 @@ interface ContactFormState {
 }
 
 function readContact(existing: Contact | null, fallback: { remindInterval?: number }): ContactFormState {
+  // eslint-disable-next-line @typescript-eslint/no-unsafe-return -- existing[k] 可能返回 any 类型，但通过 String() 包装确保类型安全
   const v = (k: keyof Contact, def: any = "") => (existing ? (existing[k] !== undefined && existing[k] !== null ? existing[k] : def) : def);
   const tags = existing && Array.isArray(existing["A-tags"]) ? (existing["A-tags"] as string[]) : [];
   return {

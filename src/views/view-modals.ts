@@ -789,8 +789,6 @@ class CreateGoalModal extends Modal {
       const parent = parentSelect.value || null;
       const due = dueInput.value || null;
 
-      console.log('[CreateGoalModal] Submit clicked, title:', title);
-
       if (!title) {
         new Notice('请输入目标名称');
         return;
@@ -800,9 +798,7 @@ class CreateGoalModal extends Modal {
       submitBtn.textContent = '创建中...';
 
       try {
-        console.log('[CreateGoalModal] Creating goal:', { title, level, parent, due });
         const result = await this.view.plugin.getGoalManager().createGoal({ title, level, due, parent });
-        console.log('[CreateGoalModal] Goal created:', result);
         new Notice('目标创建成功！');
         this.close();
         this.view.loadAndRender();

@@ -181,6 +181,7 @@ export class ContactManager {
     ]);
     for (const key of Object.keys(frontmatter)) {
       if (systemKeys.has(key)) continue;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- 动态属性赋值，需要访问 any 类型的 contact 对象
       (contact as any)[key] = frontmatter[key];
     }
 
@@ -258,6 +259,7 @@ export class ContactManager {
           key === 'remindInterval' || key === 'goals' || key === 'related' ||
           key === 'avatar' || key === 'phone' || key === 'email' || key === 'wechat' ||
           key === 'description') continue;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- 动态属性赋值，需要访问 any 类型的 contact 和 dto 对象
       (contact as any)[key] = (dto as any)[key];
     }
 
@@ -284,6 +286,7 @@ export class ContactManager {
     const oldRelation = contact['A-relation'];
 
     for (const key of Object.keys(dto)) {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- 动态属性赋值，需要访问 any 类型的 contact 和 dto 对象
       (contact as any)[key] = (dto as any)[key];
     }
     contact['A-updated'] = new Date().toISOString().split('T')[0];
@@ -378,6 +381,7 @@ export class ContactManager {
     ]);
     for (const key of Object.keys(contact)) {
       if (systemKeys.has(key)) continue;
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- 动态属性访问，需要访问 any 类型的 contact 对象
       const v = (contact as any)[key];
       if (v === undefined || v === null || v === '') continue;
       if (Array.isArray(v) || typeof v === 'object') {
@@ -566,8 +570,13 @@ export class ContactManager {
         if (dateMatch) date = dateMatch[1];
         else {
           const cache = this.storage.getFileCache(b.file);
+          // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- cache 可能为 any 类型，需要访问其 frontmatter 属性
           const fm = (cache as any)?.frontmatter;
-          if (fm && fm.date) date = String(fm.date);
+          if (fm) {
+            // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access -- fm 可能是 any 类型，需要访问其 date 属性
+            const d = fm.date;
+            if (d) date = String(d);
+          }
         }
 
         result.push({

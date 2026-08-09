@@ -24,8 +24,6 @@ export default class AmazingLife extends Plugin {
   private contactManager!: ContactManager;
   
   async onload(): Promise<void> {
-    console.log('Amazing Life loaded');
-    
     // Load settings
     this.lifeSettings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
     

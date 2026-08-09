@@ -107,6 +107,7 @@ export class DashboardView extends ItemView {
       const file = this.plugin.app.vault.getAbstractFileByPath(path);
       // getResourcePath 需要 TFile 对象
       if (file instanceof TFile) {
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-return, @typescript-eslint/no-unsafe-member-access -- Obsidian API 需要类型转换才能访问 getResourcePath
         return (this.plugin.app.vault as any).getResourcePath(file);
       }
     } catch (e) {

@@ -61,7 +61,6 @@ export class GoalManager {
     
     // 只有当有变化时才保存
     if (filteredFields.length !== currentFields.length) {
-      console.log(`[GoalManager] 清理未使用的自定义字段: ${currentFields.length} -> ${filteredFields.length}`);
       this.settings.customGoalFields = filteredFields;
       if (this.onSettingsChange) {
         this.onSettingsChange(this.settings);
