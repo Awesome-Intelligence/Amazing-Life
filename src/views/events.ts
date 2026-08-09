@@ -12,7 +12,6 @@
 import { Notice, Menu, setIcon } from 'obsidian';
 import type { DashboardView } from './DashboardView';
 import { safeSetHTML } from '../utils/safeHTML';
-import type { DashboardTaskMode } from './view-types';
 import { DeleteConfirmModal, CoverImagePickerModal } from './modals';
 import { FilterLogic, FilterOperator, ViewType, GOAL_FILTER_FIELDS, FILTER_OPERATOR_LABELS } from '../types';
 
