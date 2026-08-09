@@ -8,14 +8,24 @@
     "build": "tsc -noEmit && node esbuild.config.mjs --production",
     "lint": "eslint src --ext .ts"
   },
-  "keywords": ["obsidian", "plugin", "life-management", "goals", "tasks", "productivity"],
+  "keywords": [
+    "obsidian",
+    "plugin",
+    "life-management",
+    "goals",
+    "tasks",
+    "productivity"
+  ],
   "author": "Amazing Life Team",
   "license": "MIT",
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "@typescript-eslint/parser": "^8.66.0",
     "esbuild": "^0.20.0",
+    "eslint": "^9.39.5",
+    "eslint-plugin-obsidianmd": "^0.4.1",
     "obsidian": "^1.4.0",
-    "typescript": "~5.9.3"
-  },
-  "dependencies": {}
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.66.0"
+  }
 }
