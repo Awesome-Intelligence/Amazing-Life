@@ -11,6 +11,7 @@
 
 import { Notice, Menu, setIcon } from 'obsidian';
 import type { DashboardView } from './DashboardView';
+import type { DashboardTaskMode } from './view-types';
 import { safeSetHTML } from '../utils/safeHTML';
 import { DeleteConfirmModal, CoverImagePickerModal } from './modals';
 import { FilterLogic, FilterOperator, ViewType, GOAL_FILTER_FIELDS, FILTER_OPERATOR_LABELS } from '../types';
@@ -747,7 +748,7 @@ export class EventManager {
         lineSpan.setText(String(ref.lineNumber));
         
         const contentDiv = itemDiv.createDiv('al-reference-content');
-        contentDiv.insertAdjacentHTML('beforeend', lineContent);
+        safeSetHTML(contentDiv, lineContent);
 
         itemDiv.addEventListener('click', () => {
           const file = view.plugin.app.vault.getAbstractFileByPath(ref.filePath);
@@ -813,7 +814,7 @@ export class EventManager {
         lineSpan.setText(String(ref.lineNumber));
         
         const contentDiv = itemDiv.createDiv('al-reference-content');
-        contentDiv.insertAdjacentHTML('beforeend', lineContent);
+        safeSetHTML(contentDiv, lineContent);
 
         itemDiv.addEventListener('click', () => {
           const file = view.plugin.app.vault.getAbstractFileByPath(ref.filePath);
@@ -842,7 +843,7 @@ export class EventManager {
       const items = await view.plugin.getContactManager().getContactInteractions(view.selectedContactId);
       container.empty();
       const renderedContent = container.createDiv();
-      renderedContent.insertAdjacentHTML('beforeend', view.contactRenderer.renderContactInteractions(items));
+      safeSetHTML(renderedContent, view.contactRenderer.renderContactInteractions(items));
       renderedContent.querySelectorAll<HTMLElement>('.al-detail-reference-item').forEach(item => {
         item.addEventListener('click', () => {
           const filePath = item.getAttribute('data-file-path');
