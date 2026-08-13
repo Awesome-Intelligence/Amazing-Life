@@ -41,4 +41,4 @@ jobs:
           gh release create "$tag" \
             --title="$tag" \
             --generate-notes \
-            main.js manifest.json "$PLUGIN_NAME".zip
+            main.js manifest.json styles.css versions.json "$PLUGIN_NAME".zip
